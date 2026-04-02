@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { semanticSearch } from '../../services/api';
-import StatusBadge from '../common/StatusBadge';
-import LoadingSpinner from '../common/LoadingSpinner';
+import { semanticSearch } from '../services/api';
+import StatusBadge from '../components/common/StatusBadge';
+import LoadingSpinner from '../components/common/LoadingSpinner';
 import { Search, Sparkles, AlertCircle } from 'lucide-react';
 
 export default function SearchPage() {

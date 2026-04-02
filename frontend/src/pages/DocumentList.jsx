@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { getDocuments, exportDocumentListCSV, exportDocumentListExcel, getSettingsUsers, getSettingsCategories } from '../../services/api';
-import DocumentUpload from '../documents/DocumentUpload';
-import StatusBadge from '../common/StatusBadge';
-import FileIcon from '../common/FileIcon';
-import LoadingSpinner from '../common/LoadingSpinner';
+import { getDocuments, exportDocumentListCSV, exportDocumentListExcel, getSettingsUsers, getSettingsCategories } from '../services/api';
+import DocumentUpload from '../components/documents/DocumentUpload';
+import StatusBadge from '../components/common/StatusBadge';
+import FileIcon from '../components/common/FileIcon';
+import LoadingSpinner from '../components/common/LoadingSpinner';
 import { format } from 'date-fns';
 import { Filter, Search, Download, Plus, Layers, User, MoreVertical } from 'lucide-react';
 
