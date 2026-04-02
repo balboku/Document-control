@@ -5,7 +5,7 @@ import StatusBadge from '../components/common/StatusBadge';
 import FileIcon from '../components/common/FileIcon';
 import LoadingSpinner from '../components/common/LoadingSpinner';
 import { format } from 'date-fns';
-import { Filter, Search, Download, Plus, Layers, User, MoreVertical } from 'lucide-react';
+import { Filter, Search, Download, Plus, Layers, User, MoreVertical, FileText } from 'lucide-react';
 
 export default function DocumentList() {
   const [documents, setDocuments] = useState([]);
