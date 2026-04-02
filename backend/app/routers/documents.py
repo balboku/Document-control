@@ -16,9 +16,13 @@ from app.schemas import (
     DocumentUploadResponse, DocumentConfirm, DocumentUpdate,
     DocumentResponse, DocumentDetailResponse, DocumentVersionResponse,
     DocumentListResponse, ReserveRequest, ReserveResponse,
-    AuditLogResponse, BatchDownloadRequest,
+    AuditLogResponse, BatchDownloadRequest, DocumentStatsResponse,
+    RelationAnalysisResponse,
 )
 from app.services import document_service
+from app.services.document_service import (
+    get_document_stats, analyze_document_relations
+)
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
 
@@ -163,6 +167,28 @@ async def get_documents(
         page_size=page_size,
         total_pages=total_pages,
     )
+
+
+@router.get("/stats", response_model=DocumentStatsResponse)
+async def get_stats(db: AsyncSession = Depends(get_db)):
+    """Get system document statistics."""
+    try:
+        stats = await get_document_stats(db)
+        return stats
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/{doc_id}/analyze-relations", response_model=RelationAnalysisResponse)
+async def analyze_relations(doc_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    """Analyze relationships between this document and others."""
+    try:
+        analysis = await analyze_document_relations(db, doc_id)
+        return analysis
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/{doc_id}", response_model=DocumentDetailResponse)

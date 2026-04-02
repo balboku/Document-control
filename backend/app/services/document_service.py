@@ -10,7 +10,7 @@ from sqlalchemy.orm import selectinload, joinedload
 
 from app.models import Document, DocumentVersion, DocumentChunk, AuditLog, NumberFormat, User, Category
 from app.services.file_parser import extract_text
-from app.services.ai_service import extract_metadata
+from app.services.ai_service import extract_metadata, analyze_relations_with_ai
 from app.services.embedding_service import generate_embeddings
 from app.utils.chunking import chunk_text
 from app.config import get_settings
@@ -469,3 +469,107 @@ async def upload_new_version(
     
     await db.commit()
     return doc_version
+
+
+async def get_document_stats(db: AsyncSession) -> dict:
+    """Get overall document statistics for the dashboard."""
+    active_count = await db.scalar(select(func.count(Document.id)).where(Document.status == "active"))
+    draft_count = await db.scalar(select(func.count(Document.id)).where(Document.status == "draft"))
+    reserved_count = await db.scalar(select(func.count(Document.id)).where(Document.status == "reserved"))
+    
+    today = datetime.utcnow().date()
+    # Count uploads today based on created_at or updated_at
+    today_upload_count = await db.scalar(
+        select(func.count(DocumentVersion.id))
+        .where(func.date(DocumentVersion.uploaded_at) == today)
+    )
+    
+    # Get recent documents
+    recent_docs_result = await db.execute(
+        select(Document)
+        .options(
+            joinedload(Document.author),
+            joinedload(Document.category),
+        )
+        .order_by(desc(Document.updated_at), desc(Document.created_at))
+        .limit(5)
+    )
+    recent_documents = recent_docs_result.unique().scalars().all()
+    
+    return {
+        "active_count": active_count or 0,
+        "draft_count": draft_count or 0,
+        "reserved_count": reserved_count or 0,
+        "today_upload_count": today_upload_count or 0,
+        "recent_documents": recent_documents
+    }
+
+
+async def analyze_document_relations(db: AsyncSession, doc_id: uuid.UUID) -> dict:
+    """Find related documents using embeddings and analyze their relationship using Gemma 3."""
+    # Get target document
+    target_doc = await get_document_detail(db, doc_id)
+    if not target_doc:
+        raise ValueError("Document not found")
+        
+    # Get all embeddings for the target document's current version
+    current_version = next((v for v in target_doc.versions if v.is_current), None)
+    if not current_version:
+        return {"document_id": doc_id, "analysis_text": "無當前版本，無法進行關聯分析。", "related_documents": []}
+        
+    chunks_result = await db.execute(
+        select(DocumentChunk)
+        .where(DocumentChunk.version_id == current_version.id)
+    )
+    target_chunks = chunks_result.scalars().all()
+    if not target_chunks:
+        return {"document_id": doc_id, "analysis_text": "文件內容過少或無向量資料，無法進行關聯分析。", "related_documents": []}
+        
+    # Average the embeddings vectors for the target document
+    # For a real implementation we could query directly by chunks, but querying by chunks logic 
+    # uses distance operator. We will pick one primary chunk to query related or all.
+    # We will just use the first chunk's embedding for query for simplicity in vector search.
+    query_embedding = target_chunks[0].embedding
+    
+    # Perform vector search excluding current doc
+    results = await db.execute(
+        select(DocumentChunk, DocumentVersion, Document)
+        .join(DocumentVersion, DocumentChunk.version_id == DocumentVersion.id)
+        .join(Document, DocumentVersion.document_id == Document.id)
+        .where(Document.id != doc_id)
+        .where(Document.status == "active")
+        .order_by(DocumentChunk.embedding.cosine_distance(query_embedding))
+        .limit(50)
+    )
+    
+    seen_doc_ids = set()
+    related_docs_data = []
+    
+    for chunk, version, doc in results:
+        if doc.id in seen_doc_ids:
+            continue
+            
+        seen_doc_ids.add(doc.id)
+        related_docs_data.append({
+            "document_id": doc.id,
+            "doc_number": doc.doc_number,
+            "title": doc.title,
+            "chunk_content": chunk.content[:200] + "..." if len(chunk.content) > 200 else chunk.content,
+        })
+            
+    if not related_docs_data:
+         return {"document_id": doc_id, "analysis_text": "系統中目前無相關的文件可供關聯。", "related_documents": []}
+
+    target_doc_dict = {
+        "doc_number": target_doc.doc_number,
+        "title": target_doc.title
+    }
+    
+    # Send to AI
+    analysis_text = await analyze_relations_with_ai(target_doc_dict, related_docs_data)
+    
+    return {
+        "document_id": doc_id,
+        "analysis_text": analysis_text,
+        "related_documents": related_docs_data
+    }

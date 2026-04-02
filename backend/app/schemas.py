@@ -199,3 +199,15 @@ class ExportRequest(BaseModel):
 
 class BatchDownloadRequest(BaseModel):
     document_ids: List[UUID]
+
+class DocumentStatsResponse(BaseModel):
+    active_count: int
+    draft_count: int
+    reserved_count: int
+    today_upload_count: int
+    recent_documents: List[DocumentResponse]
+
+class RelationAnalysisResponse(BaseModel):
+    document_id: UUID
+    analysis_text: str
+    related_documents: List[Dict[str, Any]]

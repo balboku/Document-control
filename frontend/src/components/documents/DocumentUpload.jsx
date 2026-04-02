@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { uploadFileExtract, confirmDocument, getSettingsUsers, getSettingsCategories } from '../../services/api';
+import { uploadFileExtract, confirmDocument, getSettingsUsers, getSettingsCategories, createSettingsUser, createSettingsCategory } from '../../services/api';
 import { UploadCloud, FileText, CheckCircle, X, Sparkles, AlertCircle } from 'lucide-react';
 import LoadingSpinner from '../common/LoadingSpinner';
 
@@ -11,6 +11,8 @@ export default function DocumentUpload({ onClose, onSuccess }) {
   const [errorMsg, setErrorMsg] = useState("");
   
   const [aiResult, setAiResult] = useState(null);
+  const [unmatchedAuthor, setUnmatchedAuthor] = useState('');
+  const [unmatchedCategory, setUnmatchedCategory] = useState('');
   
   // Settings lookups
   const [users, setUsers] = useState([]);
@@ -88,14 +90,24 @@ export default function DocumentUpload({ onClose, onSuccess }) {
         
         // Try to match author
         if (result.ai_metadata.author) {
-          const matchedAuthor = users.find(u => u.name.includes(result.ai_metadata.author));
-          if (matchedAuthor) setAuthorId(matchedAuthor.id);
+          const matchedAuthor = users.find(u => u.name.includes(result.ai_metadata.author) || result.ai_metadata.author.includes(u.name));
+          if (matchedAuthor) {
+            setAuthorId(matchedAuthor.id);
+            setUnmatchedAuthor('');
+          } else {
+            setUnmatchedAuthor(result.ai_metadata.author);
+          }
         }
         
         // Try to match category
         if (result.ai_metadata.category) {
-          const matchedCat = categories.find(c => c.name.includes(result.ai_metadata.category));
-          if (matchedCat) setCategoryId(matchedCat.id);
+          const matchedCat = categories.find(c => c.name.includes(result.ai_metadata.category) || result.ai_metadata.category.includes(c.name));
+          if (matchedCat) {
+            setCategoryId(matchedCat.id);
+            setUnmatchedCategory('');
+          } else {
+            setUnmatchedCategory(result.ai_metadata.category);
+          }
         }
       } else {
         setTitle(result.file_name);
@@ -107,6 +119,28 @@ export default function DocumentUpload({ onClose, onSuccess }) {
       setErrorMsg(err.response?.data?.detail || '檔案上傳與解析失敗');
       setStatus('error');
     }
+  };
+
+  const handleAddAuthor = async (e) => {
+    e.preventDefault();
+    try {
+      const newUser = await createSettingsUser({ name: unmatchedAuthor });
+      const u = await getSettingsUsers(true);
+      setUsers(u);
+      setAuthorId(newUser.id);
+      setUnmatchedAuthor('');
+    } catch(e) { console.error('Failed to add author', e); }
+  };
+
+  const handleAddCategory = async (e) => {
+    e.preventDefault();
+    try {
+      const newCat = await createSettingsCategory({ name: unmatchedCategory });
+      const c = await getSettingsCategories(true);
+      setCategories(c);
+      setCategoryId(newCat.id);
+      setUnmatchedCategory('');
+    } catch(e) { console.error('Failed to add category', e); }
   };
 
   const handleConfirm = async () => {
@@ -253,6 +287,12 @@ export default function DocumentUpload({ onClose, onSuccess }) {
                     <option value="">(未指定)</option>
                     {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
                   </select>
+                  {unmatchedAuthor && (
+                    <div className="mt-2 text-xs text-amber-600 bg-amber-50 p-2 rounded-lg border border-amber-100 flex items-start justify-between">
+                      <div><span className="font-semibold">AI 建議:</span> {unmatchedAuthor} (系統無此人)</div>
+                      <button onClick={handleAddAuthor} className="text-amber-700 font-bold hover:underline shrink-0 ml-2">一鍵新增</button>
+                    </div>
+                  )}
                 </div>
                 
                 <div>
@@ -261,6 +301,12 @@ export default function DocumentUpload({ onClose, onSuccess }) {
                     <option value="">(未指定)</option>
                     {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                   </select>
+                  {unmatchedCategory && (
+                    <div className="mt-2 text-xs text-amber-600 bg-amber-50 p-2 rounded-lg border border-amber-100 flex items-start justify-between">
+                      <div><span className="font-semibold">AI 建議:</span> {unmatchedCategory} (系統無此類別)</div>
+                      <button onClick={handleAddCategory} className="text-amber-700 font-bold hover:underline shrink-0 ml-2">一鍵新增</button>
+                    </div>
+                  )}
                 </div>
 
                 <div className="md:col-span-2">

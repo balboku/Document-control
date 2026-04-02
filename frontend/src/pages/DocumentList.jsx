@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { getDocuments, exportDocumentListCSV, exportDocumentListExcel, getSettingsUsers, getSettingsCategories } from '../services/api';
 import DocumentUpload from '../components/documents/DocumentUpload';
+import DocumentDetailModal from '../components/documents/DocumentDetailModal';
 import StatusBadge from '../components/common/StatusBadge';
 import FileIcon from '../components/common/FileIcon';
 import LoadingSpinner from '../components/common/LoadingSpinner';
@@ -13,6 +14,7 @@ export default function DocumentList() {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [showUpload, setShowUpload] = useState(false);
+  const [selectedDocId, setSelectedDocId] = useState(null);
   
   // Filters
   const [searchTerm, setSearchTerm] = useState('');
@@ -181,7 +183,12 @@ export default function DocumentList() {
                       <div className="flex items-start">
                         <FileIcon type={doc.current_version ? 'pdf' : 'doc'} className="mt-1 mr-3 shrink-0" />
                         <div>
-                          <div className="text-sm font-semibold text-slate-900 group-hover:text-primary-600 transition-colors cursor-pointer">{doc.title}</div>
+                          <div 
+                            onClick={() => setSelectedDocId(doc.id)}
+                            className="text-sm font-semibold text-slate-900 group-hover:text-primary-600 transition-colors cursor-pointer"
+                          >
+                            {doc.title}
+                          </div>
                           <div className="text-xs text-slate-500 mt-1 font-mono">{doc.doc_number || '-'}</div>
                         </div>
                       </div>
@@ -240,6 +247,13 @@ export default function DocumentList() {
         <DocumentUpload 
           onClose={() => setShowUpload(false)} 
           onSuccess={() => { setShowUpload(false); fetchData(); }} 
+        />
+      )}
+
+      {selectedDocId && (
+        <DocumentDetailModal
+          docId={selectedDocId}
+          onClose={() => setSelectedDocId(null)}
         />
       )}
     </div>

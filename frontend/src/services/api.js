@@ -102,6 +102,22 @@ export const getAuditLog = async (id) => {
   return data;
 };
 
+export const getDocumentAuditLogs = async (docId) => {
+    const res = await api.get(`/documents/${docId}/audit-logs`);
+    return res.data;
+};
+
+// --- New Endpoints ---
+export const getStats = async () => {
+    const res = await api.get('/documents/stats');
+    return res.data;
+};
+
+export const analyzeRelations = async (docId) => {
+    const res = await api.post(`/documents/${docId}/analyze-relations`);
+    return res.data;
+};
+
 // Search API
 export const searchDocuments = async (params) => {
   const { data } = await api.get('/search', { params });

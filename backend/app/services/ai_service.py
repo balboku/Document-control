@@ -99,3 +99,48 @@ async def extract_metadata(document_text: str, categories: List[str] = None) -> 
         except Exception as e:
             logger.error(f"AI metadata extraction failed: {e}")
             return None
+
+async def analyze_relations_with_ai(target_doc: dict, related_docs: List[dict]) -> str:
+    """
+    Use Gemma 3 27B to analyze the business relationship between a target document and related documents.
+    """
+    if not target_doc or not related_docs:
+        return "無法進行關聯分析：目標文件或關聯文件為空。"
+    
+    docs_info = []
+    for i, doc in enumerate(related_docs, 1):
+        info = f"關聯文件 {i}:\n文件編號: {doc.get('doc_number', '未知')}\n文件名稱: {doc.get('title', '未知')}\n內容片段/摘要: {doc.get('chunk_content', '未知')}\n"
+        docs_info.append(info)
+        
+    related_docs_str = "\n".join(docs_info)
+    
+    prompt = f"""你是一個專業的企業文件與知識管理專家。請分析「目標文件」與多筆「關聯文件」之間的業務邏輯關聯性。
+
+目標文件：
+文件編號: {target_doc.get("doc_number", "未知")}
+文件名稱: {target_doc.get("title", "未知")}
+
+以下是透過向量搜尋找出的關聯文件：
+{related_docs_str}
+
+請以專業、精煉的繁體中文，綜合總結這份「目標文件」與上述「關聯文件」在業務邏輯上高度相關的原因。
+例如它們是否屬於同一個業務流程的上下游、是否為彼此的參考規範、是否有版本繼承或補充說明的關係？
+請直接給出分析結論，字數控制在 300 字以內，不要使用 Markdown 標題，請使用一般段落與條列式說明。"""
+
+    async with _semaphore:
+        try:
+            client = get_client()
+            response = await asyncio.to_thread(
+                client.models.generate_content,
+                model=settings.gemma_model,
+                contents=prompt,
+            )
+            
+            if not response or not response.text:
+                return "AI 暫無回應，請稍後再試。"
+            
+            return response.text.strip()
+            
+        except Exception as e:
+            logger.error(f"AI relation analysis failed: {e}")
+            return f"AI 關聯分析失敗：{str(e)}"
