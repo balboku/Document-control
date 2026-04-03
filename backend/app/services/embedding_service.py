@@ -25,13 +25,14 @@ def get_client():
     return _client
 
 
-async def generate_embeddings(texts: List[str]) -> Optional[List[List[float]]]:
+async def generate_embeddings(texts: List[str], max_retries: int = 3) -> Optional[List[List[float]]]:
     """
     Generate embeddings for a list of text chunks using Gemini Embedding 2.
-    Batches texts to stay within rate limits.
+    Batches texts to stay within rate limits, with exponential backoff retry.
 
     Args:
         texts: List of text strings to embed
+        max_retries: Maximum number of retry attempts
 
     Returns:
         List of embedding vectors, or None on failure
@@ -40,34 +41,55 @@ async def generate_embeddings(texts: List[str]) -> Optional[List[List[float]]]:
         return []
 
     async with _semaphore:
-        try:
-            client = get_client()
+        for attempt in range(max_retries):
+            try:
+                client = get_client()
 
-            # Process in batches of 20 to manage token limits
-            batch_size = 20
-            all_embeddings = []
+                # Process in batches of 20 to manage token limits
+                batch_size = 20
+                all_embeddings = []
 
-            for i in range(0, len(texts), batch_size):
-                batch = texts[i:i + batch_size]
+                for i in range(0, len(texts), batch_size):
+                    batch = texts[i:i + batch_size]
 
-                response = await asyncio.to_thread(
-                    client.models.embed_content,
-                    model=settings.embedding_model,
-                    contents=batch,
-                )
+                    response = await asyncio.to_thread(
+                        client.models.embed_content,
+                        model=settings.embedding_model,
+                        contents=batch,
+                    )
 
-                for emb in response.embeddings:
-                    all_embeddings.append(emb.values)
+                    for emb in response.embeddings:
+                        all_embeddings.append(emb.values)
 
-                # Small delay between batches to respect rate limits
-                if i + batch_size < len(texts):
-                    await asyncio.sleep(0.5)
+                    # Small delay between batches to respect rate limits
+                    if i + batch_size < len(texts):
+                        await asyncio.sleep(0.5)
 
-            return all_embeddings
+                logger.info(f"Successfully generated {len(all_embeddings)} embeddings")
+                return all_embeddings
 
-        except Exception as e:
-            logger.error(f"Embedding generation failed: {e}")
-            return None
+            except Exception as e:
+                error_str = str(e).lower()
+                is_rate_limit = any(kw in error_str for kw in ["rate limit", "resource exhausted", "429", "too many requests"])
+                is_auth_error = any(kw in error_str for kw in ["permission denied", "unauthenticated", "api key", "401", "403"])
+
+                if is_rate_limit:
+                    wait_time = 2 ** attempt * 2
+                    logger.warning(f"Rate limited on attempt {attempt + 1}/{max_retries}, waiting {wait_time}s: {e}")
+                    await asyncio.sleep(wait_time)
+                elif is_auth_error:
+                    logger.error(f"API key/authentication error - check GOOGLE_API_KEY: {e}")
+                    return None
+                else:
+                    wait_time = 2 ** attempt * 2
+                    logger.error(f"Embedding generation failed (attempt {attempt + 1}/{max_retries}): {e}")
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(wait_time)
+                    else:
+                        return None
+
+        logger.error(f"Embedding generation failed after {max_retries} retries")
+        return None
 
 
 async def generate_query_embedding(query: str) -> Optional[List[float]]:

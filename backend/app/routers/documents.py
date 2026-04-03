@@ -18,11 +18,12 @@ from app.schemas import (
     DocumentListResponse, ReserveRequest, ReserveResponse,
     AuditLogResponse, BatchDownloadRequest, DocumentStatsResponse,
     RelationAnalysisResponse, DocumentHistoryResponse, RelatedDocumentResponse,
+    ExtractMetadataResponse,
 )
 from app.services import document_service
 from app.services.document_service import (
     get_document_stats, analyze_document_relations, get_related_documents,
-    get_document_history,
+    get_document_history, reindex_document, reindex_all_documents,
 )
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
@@ -497,3 +498,25 @@ async def get_related(
         return related
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.post("/{doc_id}/reindex")
+async def reindex_single_document(
+    doc_id: UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Re-index a single document to regenerate missing embeddings."""
+    try:
+        result = await reindex_document(db, doc_id)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.post("/reindex-all")
+async def reindex_all_documents_endpoint(
+    db: AsyncSession = Depends(get_db),
+):
+    """Re-index ALL documents that are missing embeddings."""
+    result = await reindex_all_documents(db)
+    return result

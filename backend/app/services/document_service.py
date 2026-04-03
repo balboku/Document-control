@@ -2,6 +2,7 @@
 import os
 import uuid
 import hashlib
+import logging
 from datetime import datetime
 from typing import Optional, List, Tuple
 from sqlalchemy import select, func, desc, and_, or_
@@ -16,6 +17,7 @@ from app.utils.chunking import chunk_text
 from app.config import get_settings
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 
 async def ensure_upload_dir():
@@ -298,6 +300,13 @@ async def confirm_document(
                         embedding=embedding,
                     )
                     db.add(chunk)
+                logger.info(f"Created {len(embeddings)} embeddings for document {document.doc_number}")
+            else:
+                logger.error(f"Embedding generation returned None for document {document.doc_number} - document will not be searchable")
+        else:
+            logger.warning(f"No text chunks generated for document {document.doc_number}")
+    else:
+        logger.warning(f"No extracted text for document {document.doc_number} - cannot generate embeddings")
 
     # Create audit log
     actor_name = None
@@ -546,6 +555,13 @@ async def upload_new_version(
                         embedding=embedding,
                     )
                     db.add(chunk)
+                logger.info(f"Created {len(embeddings)} embeddings for document version {version_number}")
+            else:
+                logger.error(f"Embedding generation returned None for document version {version_number} - document will not be searchable")
+        else:
+            logger.warning(f"No text chunks generated for document version {version_number}")
+    else:
+        logger.warning(f"No extracted text for document version {version_number} - cannot generate embeddings")
     
     # Audit log
     actor_name = None
@@ -783,4 +799,133 @@ async def get_document_history(db: AsyncSession, doc_id: uuid.UUID) -> dict:
         "versions": versions,
         "audit_logs": audit_logs,
         "timeline": timeline,
+    }
+
+
+async def reindex_document(db: AsyncSession, doc_id: uuid.UUID) -> dict:
+    """Regenerate embeddings for a document that has no chunks."""
+    from sqlalchemy import delete as sql_delete
+
+    document = await get_document_detail(db, doc_id)
+    if not document:
+        raise ValueError("Document not found")
+
+    current_version = next((v for v in document.versions if v.is_current), None)
+    if not current_version:
+        return {"status": "error", "message": "No current version found"}
+
+    extracted_text = current_version.extracted_text
+    if not extracted_text or not extracted_text.strip():
+        return {"status": "error", "message": "No extracted text available for re-indexing"}
+
+    # Delete existing chunks for this document
+    await db.execute(
+        sql_delete(DocumentChunk).where(DocumentChunk.document_id == doc_id)
+    )
+    await db.commit()
+
+    # Generate new chunks and embeddings
+    chunks = chunk_text(extracted_text)
+    if not chunks:
+        return {"status": "error", "message": "Failed to generate text chunks"}
+
+    embeddings = await generate_embeddings(chunks)
+    if not embeddings:
+        return {"status": "error", "message": "Embedding generation failed - check API key and logs"}
+
+    for idx, (chunk_content, embedding) in enumerate(zip(chunks, embeddings)):
+        chunk = DocumentChunk(
+            version_id=current_version.id,
+            document_id=doc_id,
+            chunk_index=idx,
+            content=chunk_content,
+            embedding=embedding,
+        )
+        db.add(chunk)
+
+    await db.commit()
+    logger.info(f"Re-indexed document {document.doc_number}: created {len(embeddings)} chunks")
+
+    return {
+        "status": "success",
+        "message": f"Successfully re-indexed with {len(embeddings)} chunks",
+        "chunks_created": len(embeddings),
+    }
+
+
+async def reindex_all_documents(db: AsyncSession) -> dict:
+    """Regenerate embeddings for ALL documents that have no chunks."""
+    from sqlalchemy import delete as sql_delete
+
+    # Find all documents without chunks
+    result = await db.execute(
+        select(Document.id, Document.doc_number, Document.title)
+        .outerjoin(DocumentChunk, Document.id == DocumentChunk.document_id)
+        .where(DocumentChunk.id == None)
+    )
+    docs_no_chunks = result.all()
+
+    if not docs_no_chunks:
+        return {"status": "success", "message": "All documents already have chunks", "reindexed": 0}
+
+    total_reindexed = 0
+    errors = []
+
+    for doc_id, doc_number, title in docs_no_chunks:
+        try:
+            # Get current version
+            version_result = await db.execute(
+                select(DocumentVersion)
+                .where(DocumentVersion.document_id == doc_id, DocumentVersion.is_current == True)
+            )
+            current_version = version_result.scalar_one_or_none()
+            if not current_version:
+                errors.append({"doc_number": doc_number, "error": "No current version"})
+                continue
+
+            extracted_text = current_version.extracted_text
+            if not extracted_text or not extracted_text.strip():
+                errors.append({"doc_number": doc_number, "error": "No extracted text"})
+                continue
+
+            # Delete existing chunks
+            await db.execute(
+                sql_delete(DocumentChunk).where(DocumentChunk.document_id == doc_id)
+            )
+            await db.commit()
+
+            # Generate chunks and embeddings
+            chunks = chunk_text(extracted_text)
+            if not chunks:
+                errors.append({"doc_number": doc_number, "error": "Failed to generate chunks"})
+                continue
+
+            embeddings = await generate_embeddings(chunks)
+            if not embeddings:
+                errors.append({"doc_number": doc_number, "error": "Embedding generation failed"})
+                continue
+
+            for idx, (chunk_content, embedding) in enumerate(zip(chunks, embeddings)):
+                chunk = DocumentChunk(
+                    version_id=current_version.id,
+                    document_id=doc_id,
+                    chunk_index=idx,
+                    content=chunk_content,
+                    embedding=embedding,
+                )
+                db.add(chunk)
+
+            await db.commit()
+            total_reindexed += 1
+            logger.info(f"Re-indexed {doc_number}: {len(embeddings)} chunks")
+
+        except Exception as e:
+            errors.append({"doc_number": doc_number, "error": str(e)})
+            await db.rollback()
+
+    return {
+        "status": "completed",
+        "total_found": len(docs_no_chunks),
+        "reindexed": total_reindexed,
+        "errors": errors,
     }
