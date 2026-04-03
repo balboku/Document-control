@@ -153,3 +153,34 @@ async def analyze_relations_with_ai(target_doc: dict, related_docs: List[dict]) 
         except Exception as e:
             logger.error(f"AI relation analysis failed: {e}")
             return f"AI 關聯分析失敗：{str(e)}"
+
+
+async def extract_text_multimodal(file_bytes: bytes, mime_type: str) -> Optional[str]:
+    """
+    Use Gemini multimodal capability (OCR) to extract text from files (like scanned PDFs).
+    """
+    prompt = "這是一份文件的內容，請幫我完整提取其中的所有文字內容（OCR）。請直接輸出提取到的文字，不要有額外對話或解釋。"
+    
+    async with _semaphore:
+        try:
+            client = get_client()
+            # Use gemini-3.1-flash-lite-preview for OCR as it has more quota
+            model_name = "gemini-3.1-flash-lite-preview"
+            
+            from google.genai import types
+            
+            response = await asyncio.to_thread(
+                client.models.generate_content,
+                model=model_name,
+                contents=[
+                    prompt,
+                    types.Part.from_bytes(data=file_bytes, mime_type=mime_type)
+                ],
+            )
+            
+            if response and response.text:
+                return response.text.strip()
+            return None
+        except Exception as e:
+            logger.error(f"Multimodal text extraction failed: {e}")
+            return None
