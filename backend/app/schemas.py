@@ -92,6 +92,7 @@ class DocumentConfirm(BaseModel):
     author_id: Optional[UUID] = None
     category_id: Optional[UUID] = None
     notes: Optional[str] = None
+    actor_id: Optional[UUID] = None
 
 class DocumentUpdate(BaseModel):
     title: Optional[str] = None

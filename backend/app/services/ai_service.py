@@ -23,19 +23,23 @@ def get_client():
     return _client
 
 
-async def extract_metadata(document_text: str, categories: List[str] = None) -> Optional[dict]:
+async def extract_metadata(document_text: str, filename: str = None, categories: List[str] = None) -> Optional[dict]:
     """
     Use Gemma 3 27B to extract metadata from document text.
     
     Args:
         document_text: The extracted text from the document
+        filename: The original filename (hint for AI)
         categories: List of available category names
     
     Returns:
         Dictionary with extracted metadata or None on failure
     """
     if not document_text or not document_text.strip():
-        return None
+        # Even if text is empty, if we have a filename, we can try to guess
+        if not filename:
+            return None
+        document_text = "[無文字內容]"
     
     # Truncate text if too long (keep within token limits ~15000 TPM)
     max_chars = 10000
@@ -43,17 +47,23 @@ async def extract_metadata(document_text: str, categories: List[str] = None) -> 
     
     categories_str = ", ".join(categories) if categories else "（未設定類別）"
     
-    prompt = f"""你是一個專業的文件分析助手。請仔細閱讀以下文件內容，從中提取以下欄位資訊。
+    prompt = f"""你是一個專業的文件分析助手。請仔細閱讀以下文件內容與檔名，從中提取以下欄位資訊。
 若某欄位在文件中找不到，請填入 null。
 
+特別注意：
+1. 「原始檔名」通常包含關鍵資訊（如文件編號、版本號 Vxx），請將其視為高優先權的參考來源。
+2. 版本號請統一格式如: v1.0, v2.1, V03 等。
+3. 如果文件內容為空，請純粹根據檔名來預估標題、編號與版本。
+
+原始檔名：{filename or "未知"}
 可用的文件類別清單：{categories_str}
 
 請以嚴格的 JSON 格式回傳，不要包含任何其他文字、markdown標記或程式碼區塊：
 
 {{
-  "title": "文件名稱/標題",
-  "version": "版本號 (如 v1.0, v2.1)",
-  "doc_number": "文件編號 (如果文件中有標注)",
+  "title": "文件名稱/標題 (若檔名更完整則優先採用檔名)",
+  "version": "版本號 (如 v1.0, v2.1, V03)",
+  "doc_number": "文件編號 (如果文件或檔名中有標注, 如 QC-P2404-01)",
   "date": "文件日期 (YYYY-MM-DD 格式)",
   "author": "製定人/作者",
   "category": "從類別清單中選擇最適合的一個，若清單為空則自行判斷",
@@ -61,7 +71,7 @@ async def extract_metadata(document_text: str, categories: List[str] = None) -> 
 }}
 
 ---
-文件內容：
+文件內容（前 {len(truncated_text)} 字）：
 {truncated_text}"""
 
     async with _semaphore:

@@ -68,28 +68,19 @@ export default function DocumentUpload({ onClose, onSuccess }) {
     // Parallel processing for AI extraction
     newlyAddedItems.forEach(item => {
       if (item.status === 'pending') {
-        startExtraction(item.id);
+        startExtraction(item.id, item.file);
       }
     });
   };
 
-  const startExtraction = async (itemId) => {
+  const startExtraction = async (itemId, fileObject) => {
     updateItem(itemId, { status: 'extracting' });
     
     try {
-      // Find item in current queue or newest state
-      let itemToAnalyze;
-      setFilesQueue(current => {
-        itemToAnalyze = current.find(i => i.id === itemId);
-        return current;
-      });
-
-      if (!itemToAnalyze) return;
-
-      const result = await uploadFileExtract(itemToAnalyze.file);
+      const result = await uploadFileExtract(fileObject);
       
       const meta = {
-        title: result.ai_metadata?.title || itemToAnalyze.file.name,
+        title: result.ai_metadata?.title || fileObject.name,
         version: result.ai_metadata?.version || 'v1.0',
         docNumber: result.ai_metadata?.doc_number || '',
         notes: result.ai_metadata?.summary || '',

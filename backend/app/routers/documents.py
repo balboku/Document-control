@@ -79,7 +79,7 @@ async def confirm_document(
             author_id=data.author_id,
             category_id=data.category_id,
             notes=data.notes,
-            actor_id=data.author_id,
+            actor_id=data.actor_id,
         )
         
         return DocumentResponse(

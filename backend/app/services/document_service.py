@@ -100,8 +100,8 @@ async def process_upload(
     
     # Get AI metadata
     ai_metadata = None
-    if extracted_text:
-        ai_metadata = await extract_metadata(extracted_text, categories)
+    if extracted_text or filename:
+        ai_metadata = await extract_metadata(extracted_text, filename, categories)
     
     return {
         "file_id": stored_name,
@@ -182,8 +182,9 @@ async def confirm_document(
     
     # Get AI metadata
     ai_metadata = None
-    if extracted_text:
-        ai_metadata = await extract_metadata(extracted_text, categories)
+    if extracted_text or title:
+        # Use provided title (often filename) as AI hint
+        ai_metadata = await extract_metadata(extracted_text, title, categories)
     
     # Mark old versions as not current
     await db.execute(
@@ -397,8 +398,8 @@ async def upload_new_version(
     categories = [c.name for c in cat_result.scalars().all()]
     
     ai_metadata = None
-    if extracted_text:
-        ai_metadata = await extract_metadata(extracted_text, categories)
+    if extracted_text or filename:
+        ai_metadata = await extract_metadata(extracted_text, filename, categories)
     
     # Mark old versions as not current
     from sqlalchemy import update as sql_update
