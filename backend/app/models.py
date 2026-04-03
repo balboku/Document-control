@@ -91,6 +91,7 @@ class DocumentVersion(Base):
     file_hash = Column(String(64), nullable=True)  # SHA-256 hash for duplicate detection
     extracted_text = Column(Text, nullable=True)
     ai_metadata = Column(JSON, nullable=True)
+    ai_analysis_text = Column(Text, nullable=True)
     is_current = Column(Boolean, default=True)
     uploaded_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     uploaded_at = Column(DateTime, default=datetime.utcnow)

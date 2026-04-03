@@ -50,11 +50,11 @@ export default function DocumentDetailModal({ docId, onClose }) {
     }
   };
 
-  const handleAnalyze = async () => {
+  const handleAnalyze = async (force = false) => {
     setAnalyzing(true);
-    setAnalysisResult(null);
+    if (force) setAnalysisResult(null);
     try {
-      const result = await analyzeRelations(docId);
+      const result = await analyzeRelations(docId, force);
       setAnalysisResult(result);
     } catch (error) {
       console.error(error);
@@ -314,7 +314,22 @@ export default function DocumentDetailModal({ docId, onClose }) {
                       </div>
                     ) : (
                       <div className="space-y-8 animate-in fade-in duration-700">
-                        <div className="bg-white/10 backdrop-blur-md rounded-[2rem] p-8 border border-white/10 leading-relaxed font-medium">
+                        <div className="flex justify-between items-center bg-white/10 backdrop-blur-md rounded-t-[2rem] px-8 py-4 border-b border-white/10">
+                          <div className="flex items-center space-x-2">
+                             <div className={`w-2 h-2 rounded-full ${analysisResult.cached ? 'bg-emerald-400' : 'bg-amber-400 animate-pulse'}`} />
+                             <span className="text-xs font-bold text-primary-50 uppercase tracking-wider">
+                               {analysisResult.cached ? '已讀取存檔' : '全新分析'}
+                             </span>
+                          </div>
+                          <button 
+                            onClick={() => handleAnalyze(true)}
+                            className="text-xs font-black text-white/60 hover:text-white flex items-center transition-colors px-4 py-2 hover:bg-white/10 rounded-xl"
+                          >
+                            <Loader2 className={`w-3.5 h-3.5 mr-2 ${analyzing ? 'animate-spin' : ''}`} />
+                            重新生成洞察
+                          </button>
+                        </div>
+                        <div className="bg-white/10 backdrop-blur-md rounded-b-[2rem] p-8 leading-relaxed font-medium">
                           {analysisResult.analysis_text.split('\n').map((line, i) => (
                             <p key={i} className="mb-4 last:mb-0 text-primary-50">{line}</p>
                           ))}

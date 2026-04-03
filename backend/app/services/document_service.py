@@ -618,7 +618,7 @@ async def get_document_stats(db: AsyncSession) -> dict:
     }
 
 
-async def analyze_document_relations(db: AsyncSession, doc_id: uuid.UUID) -> dict:
+async def analyze_document_relations(db: AsyncSession, doc_id: uuid.UUID, force_refresh: bool = False) -> dict:
     """Find related documents using embeddings and analyze their relationship using Gemma 3."""
     # Get target document
     target_doc = await get_document_detail(db, doc_id)
@@ -630,18 +630,61 @@ async def analyze_document_relations(db: AsyncSession, doc_id: uuid.UUID) -> dic
     if not current_version:
         return {"document_id": doc_id, "analysis_text": "無當前版本，無法進行關聯分析。", "related_documents": []}
 
+    # Check for cached analysis if not forcing refresh
+    if not force_refresh and current_version.ai_analysis_text:
+        # We still need to fetch related documents to show in the UI, 
+        # but we skip the AI generation step.
+        logger.info(f"Using cached analysis for document {target_doc.doc_number}")
+        
+        # We need to find the related documents again for the response 
+        # (even if we don't call AI, we need the list for the UI)
+        related_docs = await _find_related_docs_data(db, doc_id, current_version)
+        
+        return {
+            "document_id": doc_id,
+            "analysis_text": current_version.ai_analysis_text,
+            "related_documents": related_docs,
+            "cached": True
+        }
+
+    # Find related documents for analysis
+    related_docs_data = await _find_related_docs_data(db, doc_id, current_version)
+
+    if not related_docs_data:
+         return {"document_id": doc_id, "analysis_text": "系統中目前無相關的文件可供關聯。", "related_documents": []}
+
+    target_doc_dict = {
+        "doc_number": target_doc.doc_number,
+        "title": target_doc.title
+    }
+
+    # Send to AI
+    analysis_text = await analyze_relations_with_ai(target_doc_dict, related_docs_data)
+
+    # Cache the result
+    current_version.ai_analysis_text = analysis_text
+    db.add(current_version)
+    await db.commit()
+
+    return {
+        "document_id": doc_id,
+        "analysis_text": analysis_text,
+        "related_documents": related_docs_data,
+        "cached": False
+    }
+
+
+async def _find_related_docs_data(db: AsyncSession, doc_id: uuid.UUID, current_version: DocumentVersion) -> List[dict]:
+    """Helper to find related documents data based on embeddings."""
     chunks_result = await db.execute(
         select(DocumentChunk)
         .where(DocumentChunk.version_id == current_version.id)
     )
     target_chunks = chunks_result.scalars().all()
     if not target_chunks:
-        return {"document_id": doc_id, "analysis_text": "文件內容過少或無向量資料，無法進行關聯分析。", "related_documents": []}
+        return []
 
-    # Average the embeddings vectors for the target document
-    # For a real implementation we could query directly by chunks, but querying by chunks logic
-    # uses distance operator. We will pick one primary chunk to query related or all.
-    # We will just use the first chunk's embedding for query for simplicity in vector search.
+    # Use the first chunk's embedding for query
     query_embedding = target_chunks[0].embedding
 
     # Perform vector search excluding current doc
@@ -669,23 +712,11 @@ async def analyze_document_relations(db: AsyncSession, doc_id: uuid.UUID) -> dic
             "title": doc.title,
             "chunk_content": chunk.content[:200] + "..." if len(chunk.content) > 200 else chunk.content,
         })
+        
+        if len(related_docs_data) >= 5:
+            break
 
-    if not related_docs_data:
-         return {"document_id": doc_id, "analysis_text": "系統中目前無相關的文件可供關聯。", "related_documents": []}
-
-    target_doc_dict = {
-        "doc_number": target_doc.doc_number,
-        "title": target_doc.title
-    }
-
-    # Send to AI
-    analysis_text = await analyze_relations_with_ai(target_doc_dict, related_docs_data)
-
-    return {
-        "document_id": doc_id,
-        "analysis_text": analysis_text,
-        "related_documents": related_docs_data
-    }
+    return related_docs_data
 
 
 async def get_related_documents(db: AsyncSession, doc_id: uuid.UUID, top_k: int = 5) -> list:

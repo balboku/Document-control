@@ -122,8 +122,8 @@ export const getStats = async () => {
     return res.data;
 };
 
-export const analyzeRelations = async (docId) => {
-    const res = await api.post(`/documents/${docId}/analyze-relations`);
+export const analyzeRelations = async (doc_id, forceRefresh = false) => {
+    const res = await api.post(`/documents/${doc_id}/analyze-relations?force_refresh=${forceRefresh}`);
     return res.data;
 };
 

@@ -275,3 +275,4 @@ class RelationAnalysisResponse(BaseModel):
     document_id: UUID
     analysis_text: str
     related_documents: List[Dict[str, Any]]
+    cached: bool = False

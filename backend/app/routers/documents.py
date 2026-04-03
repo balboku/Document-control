@@ -207,10 +207,14 @@ async def get_stats(db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/{doc_id}/analyze-relations", response_model=RelationAnalysisResponse)
-async def analyze_relations(doc_id: UUID, db: AsyncSession = Depends(get_db)):
+async def analyze_relations(
+    doc_id: UUID,
+    force_refresh: bool = Query(False),
+    db: AsyncSession = Depends(get_db)
+):
     """Analyze relationships between this document and others."""
     try:
-        analysis = await analyze_document_relations(db, doc_id)
+        analysis = await analyze_document_relations(db, doc_id, force_refresh)
         return analysis
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
