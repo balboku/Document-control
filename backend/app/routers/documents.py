@@ -180,7 +180,7 @@ async def get_stats(db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/{doc_id}/analyze-relations", response_model=RelationAnalysisResponse)
-async def analyze_relations(doc_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def analyze_relations(doc_id: UUID, db: AsyncSession = Depends(get_db)):
     """Analyze relationships between this document and others."""
     try:
         analysis = await analyze_document_relations(db, doc_id)
