@@ -62,12 +62,11 @@ async def extract_metadata(document_text: str, filename: str = None, categories:
 
 {{
   "title": "文件名稱/標題 (若檔名更完整則優先採用檔名)",
-  "version": "版本號 (如 v1.0, v2.1, V03)",
-  "doc_number": "文件編號 (如果文件或檔名中有標注, 如 QC-P2404-01)",
-  "date": "文件日期 (YYYY-MM-DD 格式)",
-  "author": "製定人/作者",
   "category": "從類別清單中選擇最適合的一個，若清單為空則自行判斷",
-  "summary": "100字以內的文件摘要"
+  "keywords": ["關鍵字1", "關鍵字2", "關鍵字3"],
+  "summary": "100字以內的文件摘要",
+  "version": "版本號 (如 v1.0, v2.1, V03)",
+  "doc_number": "文件編號 (如果文件或檔名中有標注, 如 QC-P2404-01)"
 }}
 
 ---

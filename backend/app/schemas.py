@@ -77,12 +77,23 @@ class NumberFormatResponse(BaseModel):
 # ============ Document Schemas ============
 
 class DocumentUploadResponse(BaseModel):
-    file_id: str
+    file_id: Optional[str] = None
     file_name: str
     file_type: str
     file_size: int
     extracted_text_preview: str
     ai_metadata: Optional[dict] = None
+    duplicate_check: Optional[dict] = None  # Contains duplicate detection results
+
+class ExtractMetadataResponse(BaseModel):
+    title: Optional[str] = None
+    category: Optional[str] = None
+    keywords: List[str] = []
+    summary: Optional[str] = None
+    version: Optional[str] = None
+    doc_number: Optional[str] = None
+    extracted_text_preview: str
+    file_hash: str
 
 class DocumentConfirm(BaseModel):
     file_id: str
@@ -91,13 +102,16 @@ class DocumentConfirm(BaseModel):
     version: str = "v1.0"
     author_id: Optional[UUID] = None
     category_id: Optional[UUID] = None
+    keywords: Optional[List[str]] = None
     notes: Optional[str] = None
     actor_id: Optional[UUID] = None
+    file_hash: Optional[str] = None  # SHA-256 hash for duplicate detection
 
 class DocumentUpdate(BaseModel):
     title: Optional[str] = None
     author_id: Optional[UUID] = None
     category_id: Optional[UUID] = None
+    keywords: Optional[List[str]] = None
     notes: Optional[str] = None
     status: Optional[str] = None
 
@@ -126,6 +140,7 @@ class DocumentResponse(BaseModel):
     author_name: Optional[str] = None
     category_id: Optional[UUID]
     category_name: Optional[str] = None
+    keywords: Optional[List[str]] = None
     notes: Optional[str]
     reserved_at: Optional[datetime]
     created_at: datetime
@@ -189,6 +204,54 @@ class AuditLogResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class DocumentHistoryResponse(BaseModel):
+    """Combined history response with versions and audit logs in timeline format."""
+    document_id: UUID
+    doc_number: str
+    title: Optional[str]
+    versions: List[DocumentVersionResponse]
+    audit_logs: List[AuditLogResponse]
+
+
+class TimelineEntryResponse(BaseModel):
+    """Single timeline entry combining version and audit log data."""
+    type: str  # 'version' or 'audit'
+    timestamp: str
+    data: dict
+
+
+class RelatedDocumentResponse(BaseModel):
+    """Response for semantically related documents."""
+    document_id: UUID
+    doc_number: str
+    title: Optional[str]
+    similarity_score: float
+    status: str
+    category_name: Optional[str] = None
+    author_name: Optional[str] = None
+
+
+class RelatedDocumentResponse(BaseModel):
+    """Response for semantically related documents."""
+    document_id: UUID
+    doc_number: str
+    title: Optional[str]
+    similarity_score: float
+    status: str
+    category_name: Optional[str] = None
+    author_name: Optional[str] = None
+
+
+class DuplicateCheckResponse(BaseModel):
+    """Response for duplicate check during upload."""
+    is_exact_duplicate: bool
+    is_semantic_duplicate: bool
+    duplicate_document_id: Optional[UUID] = None
+    duplicate_doc_number: Optional[str] = None
+    duplicate_title: Optional[str] = None
+    similarity_score: Optional[float] = None
 
 
 # ============ Export Schemas ============

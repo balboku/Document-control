@@ -1,7 +1,7 @@
 """Document business logic service."""
 import os
 import uuid
-import shutil
+import hashlib
 from datetime import datetime
 from typing import Optional, List, Tuple
 from sqlalchemy import select, func, desc, and_, or_
@@ -11,7 +11,7 @@ from sqlalchemy.orm import selectinload, joinedload
 from app.models import Document, DocumentVersion, DocumentChunk, AuditLog, NumberFormat, User, Category
 from app.services.file_parser import extract_text
 from app.services.ai_service import extract_metadata, analyze_relations_with_ai
-from app.services.embedding_service import generate_embeddings
+from app.services.embedding_service import generate_embeddings, check_semantic_duplicate
 from app.utils.chunking import chunk_text
 from app.config import get_settings
 
@@ -85,24 +85,81 @@ async def process_upload(
     Process an uploaded file: save it, extract text, and get AI metadata.
     Returns a temporary result for user confirmation.
     """
+    # Calculate file hash for duplicate detection
+    file_hash = hashlib.sha256(file_bytes).hexdigest()
+
+    # Check for exact duplicate by hash
+    existing_version = await db.execute(
+        select(DocumentVersion).where(DocumentVersion.file_hash == file_hash)
+    )
+    duplicate_version = existing_version.scalar_one_or_none()
+
+    if duplicate_version:
+        # Get the associated document
+        existing_doc = await db.execute(
+            select(Document).where(Document.id == duplicate_version.document_id)
+        )
+        duplicate_doc = existing_doc.scalar_one_or_none()
+
+        return {
+            "file_id": None,
+            "file_name": filename,
+            "file_type": os.path.splitext(filename)[1].strip("."),
+            "file_size": file_size,
+            "extracted_text_preview": "",
+            "ai_metadata": None,
+            "duplicate_check": {
+                "is_exact_duplicate": True,
+                "is_semantic_duplicate": False,
+                "duplicate_document_id": str(duplicate_doc.id) if duplicate_doc else None,
+                "duplicate_doc_number": duplicate_doc.doc_number if duplicate_doc else None,
+                "duplicate_title": duplicate_doc.title if duplicate_doc else None,
+                "similarity_score": None,
+            }
+        }
+
     # Save file
     file_path, stored_name = await save_uploaded_file(file_bytes, filename)
-    
+
     # Extract text
     file_ext = os.path.splitext(filename)[1].strip(".")
     extracted_text = extract_text(file_bytes, file_ext)
-    
+
+    # Check for semantic duplicate
+    semantic_duplicate = None
+    if extracted_text:
+        semantic_duplicate = await check_semantic_duplicate(db, extracted_text, similarity_threshold=0.95)
+
+    if semantic_duplicate:
+        return {
+            "file_id": stored_name,
+            "file_name": filename,
+            "file_path": file_path,
+            "file_type": file_ext,
+            "file_size": file_size,
+            "extracted_text_preview": (extracted_text or "")[:500],
+            "ai_metadata": None,
+            "duplicate_check": {
+                "is_exact_duplicate": False,
+                "is_semantic_duplicate": True,
+                "duplicate_document_id": semantic_duplicate["document_id"],
+                "duplicate_doc_number": semantic_duplicate["doc_number"],
+                "duplicate_title": semantic_duplicate["title"],
+                "similarity_score": semantic_duplicate["similarity_score"],
+            }
+        }
+
     # Get categories for AI prompt
     result = await db.execute(
         select(Category).where(Category.is_active == True).order_by(Category.sort_order)
     )
     categories = [c.name for c in result.scalars().all()]
-    
+
     # Get AI metadata
     ai_metadata = None
     if extracted_text or filename:
         ai_metadata = await extract_metadata(extracted_text, filename, categories)
-    
+
     return {
         "file_id": stored_name,
         "file_name": filename,
@@ -112,6 +169,8 @@ async def process_upload(
         "extracted_text": extracted_text or "",
         "extracted_text_preview": (extracted_text or "")[:500],
         "ai_metadata": ai_metadata,
+        "file_hash": file_hash,
+        "duplicate_check": None,
     }
 
 
@@ -123,23 +182,29 @@ async def confirm_document(
     version: str,
     author_id: Optional[uuid.UUID],
     category_id: Optional[uuid.UUID],
+    keywords: Optional[List[str]],
     notes: Optional[str],
     actor_id: Optional[uuid.UUID] = None,
+    file_hash: Optional[str] = None,
 ) -> Document:
     """Confirm and finalize a document upload."""
     file_path = os.path.join(settings.upload_dir, file_id)
     file_ext = os.path.splitext(file_id)[1].strip(".")
-    
+
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"Uploaded file not found: {file_id}")
-    
-    # Read file for text extraction
+
+    # Read file for text extraction and hash calculation
     with open(file_path, "rb") as f:
         file_bytes = f.read()
-    
+
+    # Calculate hash if not provided
+    if not file_hash:
+        file_hash = hashlib.sha256(file_bytes).hexdigest()
+
     extracted_text = extract_text(file_bytes, file_ext)
     file_size = os.path.getsize(file_path)
-    
+
     # Check if binding to a reserved document
     document = None
     if doc_number:
@@ -147,12 +212,12 @@ async def confirm_document(
             select(Document).where(Document.doc_number == doc_number)
         )
         document = result.scalar_one_or_none()
-    
+
     if document is None:
         # Create new document
         if not doc_number:
             doc_number = await generate_doc_number(db)
-        
+
         document = Document(
             doc_number=doc_number,
             title=title,
@@ -160,6 +225,7 @@ async def confirm_document(
             current_version=version,
             author_id=author_id,
             category_id=category_id,
+            keywords=keywords,
             notes=notes,
         )
         db.add(document)
@@ -171,34 +237,35 @@ async def confirm_document(
         document.current_version = version
         document.author_id = author_id
         document.category_id = category_id
+        document.keywords = keywords
         document.notes = notes
         document.updated_at = datetime.utcnow()
-    
+
     # Get categories for AI prompt
     cat_result = await db.execute(
         select(Category).where(Category.is_active == True)
     )
     categories = [c.name for c in cat_result.scalars().all()]
-    
+
     # Get AI metadata
     ai_metadata = None
     if extracted_text or title:
         # Use provided title (often filename) as AI hint
         ai_metadata = await extract_metadata(extracted_text, title, categories)
-    
+
     # Mark old versions as not current
     await db.execute(
         select(DocumentVersion)
         .where(DocumentVersion.document_id == document.id)
     )
-    
+
     from sqlalchemy import update as sql_update
     await db.execute(
         sql_update(DocumentVersion)
         .where(DocumentVersion.document_id == document.id)
         .values(is_current=False)
     )
-    
+
     # Create version record
     doc_version = DocumentVersion(
         document_id=document.id,
@@ -207,6 +274,7 @@ async def confirm_document(
         file_path=file_path,
         file_type=file_ext,
         file_size=file_size,
+        file_hash=file_hash,
         extracted_text=extracted_text,
         ai_metadata=ai_metadata,
         is_current=True,
@@ -214,7 +282,7 @@ async def confirm_document(
     )
     db.add(doc_version)
     await db.flush()
-    
+
     # Generate embeddings for chunks
     if extracted_text:
         chunks = chunk_text(extracted_text)
@@ -230,7 +298,7 @@ async def confirm_document(
                         embedding=embedding,
                     )
                     db.add(chunk)
-    
+
     # Create audit log
     actor_name = None
     if actor_id:
@@ -238,7 +306,7 @@ async def confirm_document(
         user = user_result.scalar_one_or_none()
         if user:
             actor_name = user.name
-    
+
     audit = AuditLog(
         document_id=document.id,
         action="UPLOAD",
@@ -247,11 +315,39 @@ async def confirm_document(
         details={"version": version, "file_name": os.path.basename(file_path)},
     )
     db.add(audit)
-    
+
     await db.commit()
     await db.refresh(document)
-    
+
     return document
+
+
+async def get_extracted_metadata(
+    db: AsyncSession,
+    file_bytes: bytes,
+    filename: str,
+) -> dict:
+    """
+    Extract text and metadata from a file without saving it to the database.
+    Used for the pre-upload AI auto-fill feature.
+    """
+    file_hash = hashlib.sha256(file_bytes).hexdigest()
+    file_ext = os.path.splitext(filename)[1].strip(".")
+    extracted_text = extract_text(file_bytes, file_ext)
+    
+    # Get categories for AI prompt
+    result = await db.execute(
+        select(Category).where(Category.is_active == True).order_by(Category.sort_order)
+    )
+    categories = [c.name for c in result.scalars().all()]
+
+    ai_metadata = await extract_metadata(extracted_text, filename, categories)
+    
+    return {
+        **ai_metadata,
+        "extracted_text_preview": (extracted_text or "")[:500],
+        "file_hash": file_hash,
+    }
 
 
 async def reserve_document_number(
@@ -512,12 +608,12 @@ async def analyze_document_relations(db: AsyncSession, doc_id: uuid.UUID) -> dic
     target_doc = await get_document_detail(db, doc_id)
     if not target_doc:
         raise ValueError("Document not found")
-        
+
     # Get all embeddings for the target document's current version
     current_version = next((v for v in target_doc.versions if v.is_current), None)
     if not current_version:
         return {"document_id": doc_id, "analysis_text": "無當前版本，無法進行關聯分析。", "related_documents": []}
-        
+
     chunks_result = await db.execute(
         select(DocumentChunk)
         .where(DocumentChunk.version_id == current_version.id)
@@ -525,13 +621,13 @@ async def analyze_document_relations(db: AsyncSession, doc_id: uuid.UUID) -> dic
     target_chunks = chunks_result.scalars().all()
     if not target_chunks:
         return {"document_id": doc_id, "analysis_text": "文件內容過少或無向量資料，無法進行關聯分析。", "related_documents": []}
-        
+
     # Average the embeddings vectors for the target document
-    # For a real implementation we could query directly by chunks, but querying by chunks logic 
+    # For a real implementation we could query directly by chunks, but querying by chunks logic
     # uses distance operator. We will pick one primary chunk to query related or all.
     # We will just use the first chunk's embedding for query for simplicity in vector search.
     query_embedding = target_chunks[0].embedding
-    
+
     # Perform vector search excluding current doc
     results = await db.execute(
         select(DocumentChunk, DocumentVersion, Document)
@@ -542,14 +638,14 @@ async def analyze_document_relations(db: AsyncSession, doc_id: uuid.UUID) -> dic
         .order_by(DocumentChunk.embedding.cosine_distance(query_embedding))
         .limit(50)
     )
-    
+
     seen_doc_ids = set()
     related_docs_data = []
-    
+
     for chunk, version, doc in results:
         if doc.id in seen_doc_ids:
             continue
-            
+
         seen_doc_ids.add(doc.id)
         related_docs_data.append({
             "document_id": doc.id,
@@ -557,7 +653,7 @@ async def analyze_document_relations(db: AsyncSession, doc_id: uuid.UUID) -> dic
             "title": doc.title,
             "chunk_content": chunk.content[:200] + "..." if len(chunk.content) > 200 else chunk.content,
         })
-            
+
     if not related_docs_data:
          return {"document_id": doc_id, "analysis_text": "系統中目前無相關的文件可供關聯。", "related_documents": []}
 
@@ -565,12 +661,126 @@ async def analyze_document_relations(db: AsyncSession, doc_id: uuid.UUID) -> dic
         "doc_number": target_doc.doc_number,
         "title": target_doc.title
     }
-    
+
     # Send to AI
     analysis_text = await analyze_relations_with_ai(target_doc_dict, related_docs_data)
-    
+
     return {
         "document_id": doc_id,
         "analysis_text": analysis_text,
         "related_documents": related_docs_data
+    }
+
+
+async def get_related_documents(db: AsyncSession, doc_id: uuid.UUID, top_k: int = 5) -> list:
+    """Find semantically related documents based on embedding similarity."""
+    from app.services.embedding_service import find_similar_documents
+
+    # Get target document's current version embedding
+    target_doc = await get_document_detail(db, doc_id)
+    if not target_doc:
+        raise ValueError("Document not found")
+
+    current_version = next((v for v in target_doc.versions if v.is_current), None)
+    if not current_version:
+        return []
+
+    # Get a representative chunk
+    chunks_result = await db.execute(
+        select(DocumentChunk)
+        .where(DocumentChunk.version_id == current_version.id)
+        .limit(1)
+    )
+    target_chunk = chunks_result.scalar_one_or_none()
+    if not target_chunk or not target_chunk.embedding:
+        return []
+
+    # Find similar documents
+    similar_docs = await find_similar_documents(
+        db,
+        target_chunk.embedding,
+        exclude_doc_id=str(doc_id),
+        top_k=top_k,
+        similarity_threshold=0.5  # Minimum 50% similarity
+    )
+
+    # Enrich with author and category names
+    for doc_info in similar_docs:
+        if doc_info.get("author_id"):
+            author_result = await db.execute(
+                select(User).where(User.id == doc_info["author_id"])
+            )
+            author = author_result.scalar_one_or_none()
+            doc_info["author_name"] = author.name if author else None
+        if doc_info.get("category_id"):
+            cat_result = await db.execute(
+                select(Category).where(Category.id == doc_info["category_id"])
+            )
+            cat = cat_result.scalar_one_or_none()
+            doc_info["category_name"] = cat.name if cat else None
+
+    return similar_docs
+
+
+async def get_document_history(db: AsyncSession, doc_id: uuid.UUID) -> dict:
+    """Get complete document history including versions and audit logs."""
+    document = await get_document_detail(db, doc_id)
+    if not document:
+        raise ValueError("Document not found")
+
+    # Get all versions
+    versions = []
+    for v in document.versions:
+        versions.append({
+            "id": str(v.id),
+            "version_number": v.version_number,
+            "file_name": v.file_name,
+            "file_type": v.file_type,
+            "file_size": v.file_size,
+            "is_current": v.is_current,
+            "uploaded_by": str(v.uploaded_by) if v.uploaded_by else None,
+            "uploader_name": v.uploader.name if v.uploader else None,
+            "uploaded_at": v.uploaded_at.isoformat(),
+        })
+
+    # Get all audit logs
+    audit_logs = []
+    for log in document.audit_logs:
+        audit_logs.append({
+            "id": str(log.id),
+            "action": log.action,
+            "actor_name": log.actor_name,
+            "details": log.details,
+            "created_at": log.created_at.isoformat(),
+        })
+
+    # Combine into timeline format
+    timeline = []
+
+    # Add versions to timeline
+    for v in versions:
+        timeline.append({
+            "type": "version",
+            "timestamp": v["uploaded_at"],
+            "data": v,
+        })
+
+    # Add audit logs to timeline
+    for log in audit_logs:
+        timeline.append({
+            "type": "audit",
+            "timestamp": log["created_at"],
+            "data": log,
+        })
+
+    # Sort by timestamp descending
+    timeline.sort(key=lambda x: x["timestamp"], reverse=True)
+
+    return {
+        "document_id": str(doc_id),
+        "doc_number": document.doc_number,
+        "title": document.title,
+        "versions": versions,
+        "audit_logs": audit_logs,
+        "timeline": timeline,
     }

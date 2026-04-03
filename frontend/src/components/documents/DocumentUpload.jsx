@@ -83,6 +83,7 @@ export default function DocumentUpload({ onClose, onSuccess }) {
         title: result.ai_metadata?.title || fileObject.name,
         version: result.ai_metadata?.version || 'v1.0',
         docNumber: result.ai_metadata?.doc_number || '',
+        keywords: result.ai_metadata?.keywords || [],
         notes: result.ai_metadata?.summary || '',
         authorId: '',
         categoryId: '',
@@ -96,13 +97,19 @@ export default function DocumentUpload({ onClose, onSuccess }) {
         if (match) meta.authorId = match.id;
         else meta.unmatchedAuthor = result.ai_metadata.author;
       }
+      
       if (result.ai_metadata?.category) {
         const match = categories.find(c => c.name.includes(result.ai_metadata.category) || result.ai_metadata.category.includes(c.name));
         if (match) meta.categoryId = match.id;
         else meta.unmatchedCategory = result.ai_metadata.category;
       }
 
-      updateItem(itemId, { status: 'confirming', aiResult: result, metadata: meta });
+      updateItem(itemId, { 
+        status: 'confirming', 
+        aiResult: result, 
+        metadata: meta,
+        duplicateCheck: result.duplicate_check 
+      });
     } catch (err) {
       updateItem(itemId, { status: 'error', error: err.response?.data?.detail || '解析失敗' });
     }
@@ -135,6 +142,7 @@ export default function DocumentUpload({ onClose, onSuccess }) {
         version: item.metadata.version,
         author_id: item.metadata.authorId || null,
         category_id: item.metadata.categoryId || null,
+        keywords: item.metadata.keywords || [],
         notes: item.metadata.notes,
         actor_id: uploaderId
       });
@@ -398,8 +406,54 @@ export default function DocumentUpload({ onClose, onSuccess }) {
                       </div>
 
                       <div className="md:col-span-2">
+                        <label className="block text-sm font-bold text-slate-700 mb-2">關鍵字 (由 AI 萃取，逗號分隔)</label>
+                        <input 
+                          type="text" 
+                          value={currentItem.metadata.keywords.join(', ')} 
+                          onChange={e => updateActiveMetadata('keywords', e.target.value.split(',').map(k => k.trim()))} 
+                          placeholder="例如: 規範, 製程, QC"
+                          className="w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:bg-white focus:ring-4 focus:ring-primary-100 transition-all text-sm font-medium" 
+                        />
+                      </div>
+
+                      <div className="md:col-span-2">
                         <label className="block text-sm font-bold text-slate-700 mb-2">文件摘要 (由 AI 提取)</label>
                         <textarea value={currentItem.metadata.notes} onChange={e=>updateActiveMetadata('notes', e.target.value)} rows="4" className="w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:bg-white focus:ring-4 focus:ring-primary-100 transition-all text-sm leading-relaxed" />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Duplicate Check Warning Overlay */}
+                  {currentItem.status === 'confirming' && currentItem.duplicateCheck && (
+                    <div className="mt-8 p-6 bg-rose-50 border border-rose-100 rounded-3xl animate-in zoom-in-95">
+                      <div className="flex items-start">
+                        <div className="w-12 h-12 bg-rose-100 rounded-2xl flex items-center justify-center text-rose-600 mr-4 shrink-0">
+                          <AlertCircle className="w-6 h-6" />
+                        </div>
+                        <div className="flex-1">
+                          <h4 className="text-lg font-bold text-rose-800">發現重複/高度相似文件</h4>
+                          <p className="text-rose-700 mt-1 text-sm leading-relaxed">
+                            系統發現庫存中已有與此檔案內容高度相似的文件：
+                            <span className="font-bold block mt-2 px-3 py-2 bg-white/50 rounded-xl border border-rose-200/50">
+                              「{currentItem.duplicateCheck.duplicate_title}」({currentItem.duplicateCheck.duplicate_doc_number}) <br/>
+                              相似度: <span className="text-rose-600 font-mono">{(currentItem.duplicateCheck.similarity_score * 100).toFixed(1)}%</span>
+                            </span>
+                          </p>
+                          <div className="mt-6 flex space-x-4">
+                            <button 
+                              onClick={() => handleConfirmSingle(activeIndex)}
+                              className="px-6 py-2.5 bg-rose-600 text-white font-bold rounded-xl hover:bg-rose-700 transition shadow-lg shadow-rose-200 text-sm"
+                            >
+                              確定為新文件並上傳
+                            </button>
+                            <button 
+                              onClick={() => setFilesQueue(prev => prev.filter(i => i.id !== currentItem.id))}
+                              className="px-6 py-2.5 bg-white text-rose-600 border border-rose-200 font-bold rounded-xl hover:bg-rose-50 transition text-sm"
+                            >
+                              取消此檔案
+                            </button>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   )}

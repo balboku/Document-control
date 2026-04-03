@@ -17,11 +17,12 @@ from app.schemas import (
     DocumentResponse, DocumentDetailResponse, DocumentVersionResponse,
     DocumentListResponse, ReserveRequest, ReserveResponse,
     AuditLogResponse, BatchDownloadRequest, DocumentStatsResponse,
-    RelationAnalysisResponse,
+    RelationAnalysisResponse, DocumentHistoryResponse, RelatedDocumentResponse,
 )
 from app.services import document_service
 from app.services.document_service import (
-    get_document_stats, analyze_document_relations
+    get_document_stats, analyze_document_relations, get_related_documents,
+    get_document_history,
 )
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
@@ -63,6 +64,27 @@ async def upload_document(
     )
 
 
+@router.post("/extract-metadata", response_model=ExtractMetadataResponse)
+async def extract_metadata_only(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Extract metadata from a file without saving it to the database."""
+    file_bytes = await file.read()
+    result = await document_service.get_extracted_metadata(db, file_bytes, file.filename)
+    
+    return ExtractMetadataResponse(
+        title=result.get("title"),
+        category=result.get("category"),
+        keywords=result.get("keywords", []),
+        summary=result.get("summary"),
+        version=result.get("version"),
+        doc_number=result.get("doc_number"),
+        extracted_text_preview=result.get("extracted_text_preview"),
+        file_hash=result.get("file_hash"),
+    )
+
+
 @router.post("/confirm", response_model=DocumentResponse)
 async def confirm_document(
     data: DocumentConfirm,
@@ -78,10 +100,12 @@ async def confirm_document(
             version=data.version,
             author_id=data.author_id,
             category_id=data.category_id,
+            keywords=data.keywords,
             notes=data.notes,
             actor_id=data.actor_id,
+            file_hash=data.file_hash,
         )
-        
+
         return DocumentResponse(
             id=document.id,
             doc_number=document.doc_number,
@@ -92,6 +116,7 @@ async def confirm_document(
             author_name=document.author.name if document.author else None,
             category_id=document.category_id,
             category_name=document.category.name if document.category else None,
+            keywords=document.keywords,
             notes=document.notes,
             reserved_at=document.reserved_at,
             created_at=document.created_at,
@@ -154,6 +179,7 @@ async def get_documents(
             author_name=doc.author.name if doc.author else None,
             category_id=doc.category_id,
             category_name=doc.category.name if doc.category else None,
+            keywords=doc.keywords,
             notes=doc.notes,
             reserved_at=doc.reserved_at,
             created_at=doc.created_at,
@@ -444,3 +470,30 @@ async def get_audit_log(
         .order_by(AuditLog.created_at.desc())
     )
     return result.scalars().all()
+
+
+@router.get("/{doc_id}/history", response_model=DocumentHistoryResponse)
+async def get_history(
+    doc_id: UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get complete document history including versions and audit logs."""
+    try:
+        history = await get_document_history(db, doc_id)
+        return history
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.get("/{doc_id}/related", response_model=List[RelatedDocumentResponse])
+async def get_related(
+    doc_id: UUID,
+    top_k: int = Query(default=5, ge=1, le=20),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get semantically related documents based on content similarity."""
+    try:
+        related = await get_related_documents(db, doc_id, top_k)
+        return related
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))

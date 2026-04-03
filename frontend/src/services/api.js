@@ -58,6 +58,15 @@ export const uploadFileExtract = async (file) => {
   return data;
 };
 
+export const extractMetadata = async (file) => {
+  const formData = new FormData();
+  formData.append('file', file);
+  const { data } = await api.post('/documents/extract-metadata', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  });
+  return data;
+};
+
 export const confirmDocument = async (confirmData) => {
   const { data } = await api.post('/documents/confirm', confirmData);
   return data;

@@ -60,6 +60,7 @@ class Document(Base):
     current_version = Column(String(20), nullable=True)
     author_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     category_id = Column(UUID(as_uuid=True), ForeignKey("categories.id"), nullable=True)
+    keywords = Column(JSON, nullable=True)  # List of keywords
     notes = Column(Text, nullable=True)
     reserved_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -87,6 +88,7 @@ class DocumentVersion(Base):
     file_path = Column(String(1000), nullable=False)
     file_type = Column(String(20), nullable=False)
     file_size = Column(BigInteger, nullable=False)
+    file_hash = Column(String(64), nullable=True)  # SHA-256 hash for duplicate detection
     extracted_text = Column(Text, nullable=True)
     ai_metadata = Column(JSON, nullable=True)
     is_current = Column(Boolean, default=True)
@@ -100,6 +102,7 @@ class DocumentVersion(Base):
 
     __table_args__ = (
         Index("idx_versions_document_id", "document_id"),
+        Index("idx_versions_file_hash", "file_hash"),
     )
 
 
