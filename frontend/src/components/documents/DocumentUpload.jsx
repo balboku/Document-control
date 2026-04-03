@@ -1,31 +1,17 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { uploadFileExtract, confirmDocument, getSettingsUsers, getSettingsCategories, createSettingsUser, createSettingsCategory } from '../../services/api';
-import { UploadCloud, FileText, CheckCircle, X, Sparkles, AlertCircle } from 'lucide-react';
+import { UploadCloud, FileText, CheckCircle, X, Sparkles, AlertCircle, Loader2, ChevronRight, Files } from 'lucide-react';
 import LoadingSpinner from '../common/LoadingSpinner';
 
 export default function DocumentUpload({ onClose, onSuccess }) {
-  const [file, setFile] = useState(null);
+  const [filesQueue, setFilesQueue] = useState([]); // { id, file, status, aiResult, metadata, error }
+  const [activeIndex, setActiveIndex] = useState(-1);
   const [isDragActive, setIsDragActive] = useState(false);
-  
-  const [status, setStatus] = useState('idle'); // idle, uploading, confirming, success, error
-  const [errorMsg, setErrorMsg] = useState("");
-  
-  const [aiResult, setAiResult] = useState(null);
-  const [unmatchedAuthor, setUnmatchedAuthor] = useState('');
-  const [unmatchedCategory, setUnmatchedCategory] = useState('');
   
   // Settings lookups
   const [users, setUsers] = useState([]);
   const [categories, setCategories] = useState([]);
-  
-  // Form fields
-  const [title, setTitle] = useState('');
-  const [version, setVersion] = useState('v1.0');
-  const [docNumber, setDocNumber] = useState('');
-  const [authorId, setAuthorId] = useState('');
-  const [categoryId, setCategoryId] = useState('');
-  const [notes, setNotes] = useState('');
-  const [uploaderId, setUploaderId] = useState(''); // Who is physically uploading this
+  const [uploaderId, setUploaderId] = useState(''); 
 
   useEffect(() => {
     async function fetchOptions() {
@@ -34,8 +20,8 @@ export default function DocumentUpload({ onClose, onSuccess }) {
         const c = await getSettingsCategories(true);
         setUsers(u);
         setCategories(c);
-        if (u.length > 0) {
-          setUploaderId(u[0].id); // Default to first active user
+        if (u.length > 0 && !uploaderId) {
+          setUploaderId(u[0].id); 
         }
       } catch (e) {
         console.error(e);
@@ -45,302 +31,405 @@ export default function DocumentUpload({ onClose, onSuccess }) {
   }, []);
 
   const handleDrag = useCallback((e) => {
-    e.preventDefault();
-    e.stopPropagation();
+    e.preventDefault(); e.stopPropagation();
     if (e.type === "dragenter" || e.type === "dragover") setIsDragActive(true);
     else if (e.type === "dragleave") setIsDragActive(false);
   }, []);
 
   const handleDrop = useCallback((e) => {
-    e.preventDefault();
-    e.stopPropagation();
+    e.preventDefault(); e.stopPropagation();
     setIsDragActive(false);
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      processFile(e.dataTransfer.files[0]);
+    if (e.dataTransfer.files) {
+      processFiles(Array.from(e.dataTransfer.files));
     }
   }, []);
 
-  const processFile = async (selectedFile) => {
-    const ext = selectedFile.name.split('.').pop().toLowerCase();
-    const allowed = ['pdf', 'docx', 'doc', 'xlsx', 'xls'];
-    if (!allowed.includes(ext)) {
-      setErrorMsg("不支援的檔案格式，僅支援 PDF, Word, Excel");
-      setStatus('error');
-      return;
-    }
-    if (selectedFile.size > 50 * 1024 * 1024) {
-      setErrorMsg("檔案過大，請上傳小於 50MB 的檔案");
-      setStatus('error');
-      return;
-    }
+  const processFiles = async (selectedFiles) => {
+    const allowed = ['pdf', 'docx', 'doc', 'xlsx', 'xls', 'txt'];
+    const newItems = selectedFiles.map(f => {
+      const ext = f.name.split('.').pop().toLowerCase();
+      const isValid = allowed.includes(ext) && f.size <= 50 * 1024 * 1024;
+      return {
+        id: Math.random().toString(36).substr(2, 9),
+        file: f,
+        status: isValid ? 'pending' : 'error',
+        error: isValid ? '' : (!allowed.includes(ext) ? '不支援格式' : '檔案過大'),
+        aiResult: null,
+        metadata: { title: f.name, version: 'v1.0', docNumber: '', authorId: '', categoryId: '', notes: '' }
+      };
+    });
 
-    setFile(selectedFile);
-    setStatus('uploading');
-    
-    try {
-      const result = await uploadFileExtract(selectedFile);
-      setAiResult(result);
-      
-      // Pre-fill form from AI
-      if (result.ai_metadata) {
-        setTitle(result.ai_metadata.title || result.file_name);
-        setVersion(result.ai_metadata.version || 'v1.0');
-        setDocNumber(result.ai_metadata.doc_number || '');
-        setNotes(result.ai_metadata.summary || '');
-        
-        // Try to match author
-        if (result.ai_metadata.author) {
-          const matchedAuthor = users.find(u => u.name.includes(result.ai_metadata.author) || result.ai_metadata.author.includes(u.name));
-          if (matchedAuthor) {
-            setAuthorId(matchedAuthor.id);
-            setUnmatchedAuthor('');
-          } else {
-            setUnmatchedAuthor(result.ai_metadata.author);
-          }
-        }
-        
-        // Try to match category
-        if (result.ai_metadata.category) {
-          const matchedCat = categories.find(c => c.name.includes(result.ai_metadata.category) || result.ai_metadata.category.includes(c.name));
-          if (matchedCat) {
-            setCategoryId(matchedCat.id);
-            setUnmatchedCategory('');
-          } else {
-            setUnmatchedCategory(result.ai_metadata.category);
-          }
-        }
-      } else {
-        setTitle(result.file_name);
+    setFilesQueue(prev => [...prev, ...newItems]);
+    if (activeIndex === -1) setActiveIndex(filesQueue.length);
+
+    // Parallel processing for AI extraction
+    newItems.forEach(item => {
+      if (item.status === 'pending') {
+        startExtraction(item.id);
       }
-      
-      setStatus('confirming');
-    } catch (err) {
-      console.error(err);
-      setErrorMsg(err.response?.data?.detail || '檔案上傳與解析失敗');
-      setStatus('error');
-    }
+    });
   };
 
-  const handleAddAuthor = async (e) => {
-    e.preventDefault();
-    try {
-      const newUser = await createSettingsUser({ name: unmatchedAuthor });
-      const u = await getSettingsUsers(true);
-      setUsers(u);
-      setAuthorId(newUser.id);
-      setUnmatchedAuthor('');
-    } catch(e) { console.error('Failed to add author', e); }
-  };
-
-  const handleAddCategory = async (e) => {
-    e.preventDefault();
-    try {
-      const newCat = await createSettingsCategory({ name: unmatchedCategory });
-      const c = await getSettingsCategories(true);
-      setCategories(c);
-      setCategoryId(newCat.id);
-      setUnmatchedCategory('');
-    } catch(e) { console.error('Failed to add category', e); }
-  };
-
-  const handleConfirm = async () => {
-    if (!uploaderId) {
-      alert("請先選擇上方「操作者 (上傳人)」");
-      return;
-    }
-    if (!title) {
-      alert("請輸入文件名稱");
-      return;
-    }
+  const startExtraction = async (itemId) => {
+    updateItem(itemId, { status: 'extracting' });
     
     try {
-      setStatus('uploading');
+      const item = filesQueue.find(i => i.id === itemId) || (await new Promise(r => {
+        setFilesQueue(current => {
+          const found = current.find(i => i.id === itemId);
+          r(found);
+          return current;
+        });
+      }));
+      
+      const result = await uploadFileExtract(item.file);
+      
+      const meta = {
+        title: result.ai_metadata?.title || item.file.name,
+        version: result.ai_metadata?.version || 'v1.0',
+        docNumber: result.ai_metadata?.doc_number || '',
+        notes: result.ai_metadata?.summary || '',
+        authorId: '',
+        categoryId: '',
+        unmatchedAuthor: '',
+        unmatchedCategory: ''
+      };
+
+      // Match Authors/Categories
+      if (result.ai_metadata?.author) {
+        const match = users.find(u => u.name.includes(result.ai_metadata.author) || result.ai_metadata.author.includes(u.name));
+        if (match) meta.authorId = match.id;
+        else meta.unmatchedAuthor = result.ai_metadata.author;
+      }
+      if (result.ai_metadata?.category) {
+        const match = categories.find(c => c.name.includes(result.ai_metadata.category) || result.ai_metadata.category.includes(c.name));
+        if (match) meta.categoryId = match.id;
+        else meta.unmatchedCategory = result.ai_metadata.category;
+      }
+
+      updateItem(itemId, { status: 'confirming', aiResult: result, metadata: meta });
+    } catch (err) {
+      updateItem(itemId, { status: 'error', error: err.response?.data?.detail || '解析失敗' });
+    }
+  };
+
+  const updateItem = (id, updates) => {
+    setFilesQueue(prev => prev.map(item => item.id === id ? { ...item, ...updates } : item));
+  };
+
+  const updateActiveMetadata = (field, value) => {
+    if (activeIndex === -1) return;
+    const current = filesQueue[activeIndex];
+    const newMeta = { ...current.metadata, [field]: value };
+    updateItem(current.id, { metadata: newMeta });
+  };
+
+  const currentItem = activeIndex >= 0 ? filesQueue[activeIndex] : null;
+
+  const handleConfirmSingle = async (index) => {
+    const item = filesQueue[index];
+    if (!uploaderId) return alert("請先選取操作者");
+    if (!item.metadata.title) return alert("請輸入文件名稱");
+
+    updateItem(item.id, { status: 'saving' });
+    try {
       await confirmDocument({
-        file_id: aiResult.file_id,
-        title,
-        doc_number: docNumber || null,
-        version,
-        author_id: authorId || null,
-        category_id: categoryId || null,
-        notes,
+        file_id: item.aiResult.file_id,
+        title: item.metadata.title,
+        doc_number: item.metadata.docNumber || null,
+        version: item.metadata.version,
+        author_id: item.metadata.authorId || null,
+        category_id: item.metadata.categoryId || null,
+        notes: item.metadata.notes,
         actor_id: uploaderId
       });
-      setStatus('success');
-      setTimeout(() => {
-        if (onSuccess) onSuccess();
-      }, 1500);
+      updateItem(item.id, { status: 'success' });
+      // If there's a next pending/confirming item, switch to it
+      const nextIdx = filesQueue.findIndex((f, i) => i > index && (f.status === 'confirming' || f.status === 'pending'));
+      if (nextIdx !== -1) setActiveIndex(nextIdx);
     } catch (err) {
-      console.error(err);
-      setErrorMsg(err.response?.data?.detail || '歸檔失敗');
-      setStatus('error');
+      updateItem(item.id, { status: 'error', error: '歸檔失敗' });
     }
   };
+
+  const handleAddSetting = async (type, name, itemId) => {
+    try {
+      let newItem;
+      if (type === 'author') {
+        newItem = await createSettingsUser({ name });
+        const u = await getSettingsUsers(true);
+        setUsers(u);
+        // Update all files that have this unmatched author
+        setFilesQueue(prev => prev.map(item => 
+          item.metadata.unmatchedAuthor === name ? 
+          { ...item, metadata: { ...item.metadata, authorId: newItem.id, unmatchedAuthor: '' } } : item
+        ));
+      } else {
+        newItem = await createSettingsCategory({ name });
+        const c = await getSettingsCategories(true);
+        setCategories(c);
+        setFilesQueue(prev => prev.map(item => 
+          item.metadata.unmatchedCategory === name ? 
+          { ...item, metadata: { ...item.metadata, categoryId: newItem.id, unmatchedCategory: '' } } : item
+        ));
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const isAllDone = filesQueue.length > 0 && filesQueue.every(f => f.status === 'success' || f.status === 'error');
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-white rounded-3xl shadow-xl w-full max-w-3xl overflow-hidden flex flex-col max-h-[90vh]">
+      <div className={`bg-white rounded-3xl shadow-xl w-full flex flex-col max-h-[90vh] overflow-hidden transition-all duration-500 ${filesQueue.length > 0 ? 'max-w-6xl' : 'max-w-3xl'}`}>
         
         {/* Header */}
-        <div className="px-8 py-6 border-b border-slate-100 flex justify-between items-center bg-white sticky top-0 z-10">
-          <div>
-            <h2 className="text-xl font-bold text-slate-800">上傳文件</h2>
-            <p className="text-sm text-slate-500 mt-1">選取檔案後由 AI 自動擷取歸檔資訊</p>
+        <div className="px-8 py-5 border-b border-slate-100 flex justify-between items-center bg-white sticky top-0 z-10">
+          <div className="flex items-center">
+            <Files className="w-6 h-6 mr-3 text-primary-600" />
+            <div>
+              <h2 className="text-xl font-bold text-slate-800">多檔案解析與歸檔</h2>
+              <p className="text-sm text-slate-500 mt-1">選取多個檔案由 AI 同時處理</p>
+            </div>
           </div>
-          <button onClick={onClose} className="p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600 rounded-full transition-colors">
+          <button onClick={isAllDone ? onSuccess : onClose} className="p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600 rounded-full transition-colors">
             <X className="w-5 h-5" />
           </button>
         </div>
         
-        <div className="flex-1 overflow-y-auto p-8">
+        <div className="flex-1 flex overflow-hidden">
           
-          {/* Uploader selection (Crucial setting) */}
-          {status !== 'success' && (
-            <div className="mb-8 bg-blue-50/50 p-5 rounded-2xl border border-blue-100/50 flex items-center shadow-sm">
-              <label className="text-sm font-semibold text-slate-700 mr-4 whitespace-nowrap">當前操作者(上傳人)</label>
-              <select 
-                value={uploaderId} onChange={e => setUploaderId(e.target.value)}
-                className="flex-1 px-4 py-2 border border-blue-200 rounded-xl focus:ring-2 focus:ring-blue-500 bg-white"
+          {/* Left Side: Upload Queue (Only shows if there are files) */}
+          {filesQueue.length > 0 && (
+            <div className="w-80 border-r border-slate-100 bg-slate-50/50 overflow-y-auto p-4 flex flex-col">
+              <div className="mb-4">
+                <label className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2 block">當前操作者</label>
+                <select 
+                  value={uploaderId} onChange={e => setUploaderId(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-white text-sm focus:ring-2 focus:ring-primary-500 shadow-sm"
+                >
+                  <option value="">請選擇...</option>
+                  {users.map(u => <option key={u.id} value={u.id}>{u.name} {u.department ? `(${u.department})` : ''}</option>)}
+                </select>
+              </div>
+
+              <div className="flex-1 space-y-2">
+                <label className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2 block">檔案隊列 ({filesQueue.length})</label>
+                {filesQueue.map((item, idx) => (
+                  <button
+                    key={item.id}
+                    onClick={() => setActiveIndex(idx)}
+                    className={`w-full text-left p-3 rounded-2xl border transition-all flex items-center group
+                      ${activeIndex === idx ? 'bg-white border-primary-200 shadow-md ring-1 ring-primary-100' : 'bg-transparent border-transparent hover:bg-white/60 hover:border-slate-200'}
+                    `}
+                  >
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mr-3 
+                      ${item.status === 'success' ? 'bg-emerald-50 text-emerald-600' : 
+                        item.status === 'error' ? 'bg-rose-50 text-rose-600' : 'bg-slate-100 text-slate-400'}
+                    `}>
+                      {item.status === 'extracting' ? <Loader2 className="w-4 h-4 animate-spin" /> : 
+                       item.status === 'success' ? <CheckCircle className="w-4 h-4" /> :
+                       item.status === 'error' ? <AlertCircle className="w-4 h-4" /> : <FileText className="w-4 h-4" />}
+                    </div>
+                    <div className="flex-1 overflow-hidden">
+                      <p className="text-sm font-semibold text-slate-800 truncate">{item.file.name}</p>
+                      <p className="text-[10px] text-slate-400 mt-0.5">
+                        {item.status === 'extracting' ? 'AI 解析中...' : 
+                         item.status === 'confirming' ? '待確認' :
+                         item.status === 'success' ? '歸檔完成' : item.error || '等待中'}
+                      </p>
+                    </div>
+                    <ChevronRight className={`w-4 h-4 text-slate-300 transition-transform ${activeIndex === idx ? 'translate-x-1 text-primary-400' : 'opacity-0 group-hover:opacity-100'}`} />
+                  </button>
+                ))}
+              </div>
+
+              <button 
+                onClick={() => document.getElementById('file-upload-more').click()}
+                className="mt-4 p-3 border-2 border-dashed border-slate-200 rounded-2xl flex items-center justify-center text-slate-500 hover:border-primary-400 hover:text-primary-600 transition"
               >
-                <option value="">請選擇...</option>
-                {users.map(u => <option key={u.id} value={u.id}>{u.name} {u.department ? `(${u.department})` : ''}</option>)}
-              </select>
+                <input id="file-upload-more" type="file" className="hidden" multiple accept=".pdf,.docx,.doc,.xlsx,.xls,.txt" onChange={(e)=>e.target.files && processFiles(Array.from(e.target.files))}/>
+                <UploadCloud className="w-4 h-4 mr-2" />
+                <span className="text-xs font-bold">繼續選取檔案</span>
+              </button>
             </div>
           )}
 
-          {/* State: Idle / Select File */}
-          {(status === 'idle' || status === 'error') && (
-            <div 
-              onDragEnter={handleDrag} onDragLeave={handleDrag} onDragOver={handleDrag} onDrop={handleDrop}
-              className={`border-2 border-dashed rounded-3xl p-12 text-center transition-colors cursor-pointer
-                ${isDragActive ? 'border-primary-500 bg-primary-50' : 'border-slate-200 hover:border-primary-400 hover:bg-slate-50'}
-                ${status === 'error' ? 'border-rose-300 bg-rose-50/50' : ''}
-              `}
-              onClick={() => document.getElementById('file-upload').click()}
-            >
-              <input 
-                id="file-upload" type="file" className="hidden" 
-                accept=".pdf,.docx,.doc,.xlsx,.xls"
-                onChange={(e) => e.target.files && processFile(e.target.files[0])}
-              />
-              <div className="mx-auto w-16 h-16 rounded-full bg-white shadow-sm flex items-center justify-center mb-4">
-                <UploadCloud className={`w-8 h-8 ${isDragActive ? 'text-primary-600' : 'text-slate-400'}`} />
-              </div>
-              <h3 className="text-lg font-semibold text-slate-800">拖曳檔案至此，或點擊上傳</h3>
-              <p className="text-sm text-slate-500 mt-2">支援格式: PDF, Word, Excel (最大 50MB)</p>
-              
-              {status === 'error' && (
-                <div className="mt-6 flex items-center justify-center text-rose-600 bg-rose-100 px-4 py-2 rounded-lg text-sm font-medium mx-auto max-w-fit">
-                  <AlertCircle className="w-4 h-4 mr-2" />
-                  {errorMsg}
+          {/* Right Side: Main Content */}
+          <div className="flex-1 p-8 overflow-y-auto bg-white flex flex-col h-full">
+            
+            {/* Operator Selection (Only when queue is empty, otherwise moved to left sidebar) */}
+            {filesQueue.length === 0 && (
+               <div className="mb-8 bg-blue-50/50 p-6 rounded-2xl border border-blue-100/50 flex flex-col space-y-4">
+                  <div className="flex items-center">
+                    <label className="text-sm font-bold text-slate-700 mr-4">當前操作者 (上傳人) *</label>
+                    <select 
+                      value={uploaderId} onChange={e => setUploaderId(e.target.value)}
+                      className="flex-1 px-4 py-2.5 border border-blue-200 rounded-xl focus:ring-2 focus:ring-blue-500 bg-white font-medium"
+                    >
+                      <option value="">請選擇上傳人員...</option>
+                      {users.map(u => <option key={u.id} value={u.id}>{u.name} {u.department ? `(${u.department})` : ''}</option>)}
+                    </select>
+                  </div>
+                  {!uploaderId && users.length > 0 && <p className="text-xs text-blue-600 flex items-center"><Sparkles className="w-3 h-3 mr-1" /> 已自動偵測到系統使用者，請確認您的身分。</p>}
+               </div>
+            )}
+
+            {/* Empty State: Drag & Drop Area */}
+            {filesQueue.length === 0 && (
+              <div 
+                onDragEnter={handleDrag} onDragLeave={handleDrag} onDragOver={handleDrag} onDrop={handleDrop}
+                className={`flex-1 border-4 border-dashed rounded-[2.5rem] flex flex-col items-center justify-center text-center p-12 transition-all group
+                  ${isDragActive ? 'border-primary-500 bg-primary-50' : 'border-slate-100 hover:border-slate-200 hover:bg-slate-50/50'}
+                `}
+                onClick={() => document.getElementById('file-upload').click()}
+              >
+                <input id="file-upload" type="file" className="hidden" multiple accept=".pdf,.docx,.doc,.xlsx,.xls,.txt" onChange={(e)=>e.target.files && processFiles(Array.from(e.target.files))}/>
+                <div className="w-24 h-24 bg-white rounded-full shadow-lg flex items-center justify-center mb-8 group-hover:scale-110 transition-transform">
+                  <UploadCloud className={`w-12 h-12 ${isDragActive ? 'text-primary-600' : 'text-slate-300'}`} />
                 </div>
-              )}
-            </div>
-          )}
-
-          {/* State: Uploading / Processing */}
-          {status === 'uploading' && (
-            <div className="py-20 flex flex-col items-center justify-center text-center">
-              <LoadingSpinner size="lg" className="mb-6" />
-              <h3 className="text-xl font-semibold text-slate-800">處理中...</h3>
-              <p className="text-slate-500 mt-2 flex items-center">
-                <Sparkles className="w-4 h-4 text-amber-500 mr-2" />
-                AI 正在從文件中萃取元資料並建立向量索引
-              </p>
-            </div>
-          )}
-
-          {/* State: AI Confirmation Form */}
-          {status === 'confirming' && (
-            <div className="animate-in slide-in-from-bottom-4 duration-500">
-              <div className="flex items-start bg-amber-50 rounded-2xl p-5 mb-8 border border-amber-100/50 shadow-sm">
-                <Sparkles className="w-5 h-5 text-amber-500 mt-0.5 shrink-0" />
-                <div className="ml-3">
-                  <h4 className="text-sm font-bold text-amber-800">AI 輔助填入建議</h4>
-                  <p className="text-xs text-amber-700/80 mt-1 leading-relaxed">
-                    我們已透過 Gemma 模型從 <span className="font-semibold">{aiResult?.file_name}</span> 中為您萃取出以下資訊。請在儲存前確認或修改。
-                  </p>
+                <h3 className="text-2xl font-bold text-slate-800">開始上傳文件</h3>
+                <p className="text-slate-500 mt-3 max-w-sm">將大量檔案拖拽至此，AI 會自動處理繁瑣的索引錄入工作。</p>
+                <div className="mt-8 flex flex-wrap gap-2 justify-center">
+                  {['PDF', 'Word', 'Excel', 'TXT'].map(t => <span key={t} className="px-3 py-1 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-400">{t}</span>)}
                 </div>
               </div>
+            )}
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">文件名稱 *</label>
-                  <input type="text" value={title} onChange={e=>setTitle(e.target.value)} required className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-primary-500" />
+            {/* Confirming state for active item */}
+            {currentItem && (
+              <div className="animate-in fade-in slide-in-from-right-4 duration-500 flex flex-col h-full">
+                {/* Status Bar */}
+                <div className="flex items-center justify-between mb-8 pb-4 border-b border-slate-100">
+                   <div className="flex items-center">
+                      <div className="w-10 h-10 bg-primary-50 rounded-xl flex items-center justify-center text-primary-600 mr-4">
+                         <FileText className="w-5 h-5" />
+                      </div>
+                      <div>
+                         <h3 className="font-bold text-slate-800 truncate max-w-md">{currentItem.file.name}</h3>
+                         <p className="text-xs text-slate-400">{(currentItem.file.size / 1024).toFixed(1)} KB</p>
+                      </div>
+                   </div>
+                   <div className={`px-4 py-2 rounded-xl text-sm font-bold flex items-center 
+                      ${currentItem.status === 'extracting' ? 'bg-amber-50 text-amber-600' : 
+                        currentItem.status === 'confirming' ? 'bg-blue-50 text-blue-600' : 
+                        currentItem.status === 'success' ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-50 text-slate-500'}`}>
+                      {currentItem.status === 'extracting' && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
+                      {currentItem.status === 'success' && <CheckCircle className="w-4 h-4 mr-2" />}
+                      {currentItem.status === 'extracting' ? 'AI 正在處理中...' : 
+                       currentItem.status === 'confirming' ? 'AI 解析完畢，請確認' : 
+                       currentItem.status === 'success' ? '文件歸檔成功' : '錯誤'}
+                   </div>
                 </div>
-                
-                <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1 flex items-center">
-                    文件編號 
-                    <span className="ml-2 text-xs font-normal text-slate-400 bg-slate-100 px-1.5 rounded">留空由系統分配</span>
-                  </label>
-                  <input type="text" value={docNumber} onChange={e=>setDocNumber(e.target.value)} placeholder="綁定預約編號" className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-primary-500" />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">版本號</label>
-                  <input type="text" value={version} onChange={e=>setVersion(e.target.value)} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-primary-500" />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">製定人 (Author)</label>
-                  <select value={authorId} onChange={e=>setAuthorId(e.target.value)} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-primary-500">
-                    <option value="">(未指定)</option>
-                    {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-                  </select>
-                  {unmatchedAuthor && (
-                    <div className="mt-2 text-xs text-amber-600 bg-amber-50 p-2 rounded-lg border border-amber-100 flex items-start justify-between">
-                      <div><span className="font-semibold">AI 建議:</span> {unmatchedAuthor} (系統無此人)</div>
-                      <button onClick={handleAddAuthor} className="text-amber-700 font-bold hover:underline shrink-0 ml-2">一鍵新增</button>
+
+                {currentItem.status === 'extracting' ? (
+                  <div className="flex-1 flex flex-col items-center justify-center py-20 text-center">
+                     <div className="relative w-32 h-32 mb-8">
+                        <LoadingSpinner size="lg" className="absolute inset-0" />
+                        <Sparkles className="w-12 h-12 text-amber-400 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
+                     </div>
+                     <h4 className="text-xl font-bold text-slate-800">深度解析內容...</h4>
+                     <p className="text-slate-500 mt-2 max-w-sm">Gemma 模型正在閱讀您的文件，提取編號、版本、作者與摘要...</p>
+                  </div>
+                ) : currentItem.status === 'success' ? (
+                  <div className="flex-1 flex flex-col items-center justify-center py-20 text-center animate-in zoom-in-95">
+                     <div className="w-24 h-24 bg-emerald-100 rounded-full flex items-center justify-center mb-6">
+                        <CheckCircle className="w-12 h-12 text-emerald-600" />
+                     </div>
+                     <h4 className="text-2xl font-bold text-slate-800">歸檔完成</h4>
+                     <p className="text-slate-500 mt-2">該文件已存入資料庫並完成向量化編碼。</p>
+                     {activeIndex < filesQueue.length - 1 && (
+                       <button onClick={() => setActiveIndex(activeIndex + 1)} className="mt-8 px-6 py-3 bg-primary-600 text-white font-bold rounded-2xl hover:bg-primary-700 transition shadow-lg flex items-center">
+                         跳至下一份檔案 <ChevronRight className="w-5 h-5 ml-2" />
+                       </button>
+                     )}
+                  </div>
+                ) : currentItem.status === 'error' ? (
+                  <div className="flex-1 flex flex-col items-center justify-center py-20 text-rose-500">
+                     <AlertCircle className="w-20 h-20 mb-6 opacity-30" />
+                     <h4 className="text-xl font-bold">發生錯誤</h4>
+                     <p className="mt-2 font-medium">{currentItem.error}</p>
+                     <button onClick={() => startExtraction(currentItem.id)} className="mt-6 text-sm font-bold underline">重試一次</button>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pb-10">
+                    <div className="md:col-span-2">
+                       <label className="block text-sm font-bold text-slate-700 mb-2">文件名稱 *</label>
+                       <input type="text" value={currentItem.metadata.title} onChange={e=>updateActiveMetadata('title', e.target.value)} className="w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:bg-white focus:ring-4 focus:ring-primary-100 transition-all font-medium" />
                     </div>
-                  )}
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">類別</label>
-                  <select value={categoryId} onChange={e=>setCategoryId(e.target.value)} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-primary-500">
-                    <option value="">(未指定)</option>
-                    {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                  </select>
-                  {unmatchedCategory && (
-                    <div className="mt-2 text-xs text-amber-600 bg-amber-50 p-2 rounded-lg border border-amber-100 flex items-start justify-between">
-                      <div><span className="font-semibold">AI 建議:</span> {unmatchedCategory} (系統無此類別)</div>
-                      <button onClick={handleAddCategory} className="text-amber-700 font-bold hover:underline shrink-0 ml-2">一鍵新增</button>
+
+                    <div className="space-y-6">
+                       <div>
+                          <label className="block text-sm font-bold text-slate-700 mb-2 flex justify-between">文件編號 <span className="font-normal text-slate-400">(預設由系統分配)</span></label>
+                          <input type="text" value={currentItem.metadata.docNumber} onChange={e=>updateActiveMetadata('docNumber', e.target.value)} placeholder="綁定預約編號" className="w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:bg-white focus:ring-4 focus:ring-primary-100 transition-all font-mono" />
+                       </div>
+                       <div>
+                          <label className="block text-sm font-bold text-slate-700 mb-2">版本號</label>
+                          <input type="text" value={currentItem.metadata.version} onChange={e=>updateActiveMetadata('version', e.target.value)} className="w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:bg-white focus:ring-4 focus:ring-primary-100 transition-all" />
+                       </div>
                     </div>
-                  )}
-                </div>
 
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">備註 / 摘要</label>
-                  <textarea value={notes} onChange={e=>setNotes(e.target.value)} rows="3" className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-primary-500"></textarea>
-                </div>
+                    <div className="space-y-6">
+                       <div>
+                          <label className="block text-sm font-bold text-slate-700 mb-2">製定人 (Author)</label>
+                          <select value={currentItem.metadata.authorId} onChange={e=>updateActiveMetadata('authorId', e.target.value)} className="w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:bg-white focus:ring-4 focus:ring-primary-100 transition-all font-medium">
+                            <option value="">(未指定)</option>
+                            {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                          </select>
+                          {currentItem.metadata.unmatchedAuthor && (
+                            <div className="mt-3 p-3 bg-amber-50 rounded-2xl border border-amber-100 flex items-center justify-between animate-in zoom-in-95">
+                               <p className="text-xs text-amber-700 font-medium">AI 建議: <span className="font-bold underline">{currentItem.metadata.unmatchedAuthor}</span></p>
+                               <button onClick={() => handleAddSetting('author', currentItem.metadata.unmatchedAuthor, currentItem.id)} className="text-[10px] font-bold bg-amber-200 text-amber-800 px-3 py-1 rounded-full hover:bg-amber-300 transition">一鍵新增</button>
+                            </div>
+                          )}
+                       </div>
+                       <div>
+                          <label className="block text-sm font-bold text-slate-700 mb-2">檔案類別</label>
+                          <select value={currentItem.metadata.categoryId} onChange={e=>updateActiveMetadata('categoryId', e.target.value)} className="w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:bg-white focus:ring-4 focus:ring-primary-100 transition-all font-medium">
+                            <option value="">(未指定)</option>
+                            {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                          </select>
+                          {currentItem.metadata.unmatchedCategory && (
+                            <div className="mt-3 p-3 bg-amber-50 rounded-2xl border border-amber-100 flex items-center justify-between animate-in zoom-in-95">
+                               <p className="text-xs text-amber-700 font-medium">AI 建議: <span className="font-bold underline">{currentItem.metadata.unmatchedCategory}</span></p>
+                               <button onClick={() => handleAddSetting('category', currentItem.metadata.unmatchedCategory, currentItem.id)} className="text-[10px] font-bold bg-amber-200 text-amber-800 px-3 py-1 rounded-full hover:bg-amber-300 transition">一鍵新增</button>
+                            </div>
+                          )}
+                       </div>
+                    </div>
+
+                    <div className="md:col-span-2">
+                       <label className="block text-sm font-bold text-slate-700 mb-2">文件摘要 (由 AI 提取)</label>
+                       <textarea value={currentItem.metadata.notes} onChange={e=>updateActiveMetadata('notes', e.target.value)} rows="4" className="w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:bg-white focus:ring-4 focus:ring-primary-100 transition-all text-sm leading-relaxed" />
+                    </div>
+                  </div>
+                )}
               </div>
-            </div>
-          )}
-
-          {/* State: Success */}
-          {status === 'success' && (
-            <div className="py-20 flex flex-col items-center justify-center text-center animate-in zoom-in-95 duration-500">
-              <div className="w-20 h-20 bg-emerald-100 rounded-full flex items-center justify-center mb-6">
-                <CheckCircle className="w-10 h-10 text-emerald-600" />
+            )}
+            
+            {/* Action Bar for confirmed current item */}
+            {currentItem && currentItem.status === 'confirming' && (
+              <div className="mt-auto pt-6 border-t border-slate-100 flex justify-between items-center bg-white">
+                 <p className="text-xs text-slate-400 font-medium italic">提示: 您可以在左側隨時切換檔案進行確認</p>
+                 <div className="flex space-x-3">
+                    <button 
+                      onClick={() => setFilesQueue(prev => prev.filter(i => i.id !== currentItem.id))}
+                      className="px-6 py-3 text-rose-600 font-bold hover:bg-rose-50 rounded-2xl transition"
+                    >
+                      移除
+                    </button>
+                    <button 
+                      onClick={() => handleConfirmSingle(activeIndex)}
+                      className="px-8 py-3 bg-primary-600 text-white font-bold rounded-2xl hover:bg-primary-700 transition shadow-lg"
+                    >
+                      確認並歸檔
+                    </button>
+                 </div>
               </div>
-              <h3 className="text-2xl font-bold text-slate-800">歸檔成功！</h3>
-              <p className="text-slate-500 mt-2">文件已經成功存入系統，並完成向量化編碼。</p>
-            </div>
-          )}
-          
-        </div>
-
-        {/* Footer Actions */}
-        {status === 'confirming' && (
-          <div className="px-8 py-5 border-t border-slate-100 bg-slate-50 flex justify-end space-x-3 mt-auto">
-            <button onClick={() => setStatus('idle')} className="px-6 py-2.5 text-slate-600 font-medium hover:bg-slate-200 rounded-xl transition">
-              重選檔案
-            </button>
-            <button onClick={handleConfirm} className="px-8 py-2.5 bg-primary-600 text-white font-medium rounded-xl hover:bg-primary-700 transition shadow-sm">
-              確認歸檔
-            </button>
+            )}
           </div>
-        )}
+        </div>
       </div>
     </div>
   );
