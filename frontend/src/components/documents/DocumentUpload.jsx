@@ -46,7 +46,7 @@ export default function DocumentUpload({ onClose, onSuccess }) {
 
   const processFiles = async (selectedFiles) => {
     const allowed = ['pdf', 'docx', 'doc', 'xlsx', 'xls', 'txt'];
-    const newItems = selectedFiles.map(f => {
+    const newlyAddedItems = selectedFiles.map(f => {
       const ext = f.name.split('.').pop().toLowerCase();
       const isValid = allowed.includes(ext) && f.size <= 50 * 1024 * 1024;
       return {
@@ -59,11 +59,14 @@ export default function DocumentUpload({ onClose, onSuccess }) {
       };
     });
 
-    setFilesQueue(prev => [...prev, ...newItems]);
-    if (activeIndex === -1) setActiveIndex(filesQueue.length);
+    setFilesQueue(prev => {
+      const updatedQueue = [...prev, ...newlyAddedItems];
+      if (activeIndex === -1) setActiveIndex(prev.length);
+      return updatedQueue;
+    });
 
     // Parallel processing for AI extraction
-    newItems.forEach(item => {
+    newlyAddedItems.forEach(item => {
       if (item.status === 'pending') {
         startExtraction(item.id);
       }
@@ -74,18 +77,19 @@ export default function DocumentUpload({ onClose, onSuccess }) {
     updateItem(itemId, { status: 'extracting' });
     
     try {
-      const item = filesQueue.find(i => i.id === itemId) || (await new Promise(r => {
-        setFilesQueue(current => {
-          const found = current.find(i => i.id === itemId);
-          r(found);
-          return current;
-        });
-      }));
-      
-      const result = await uploadFileExtract(item.file);
+      // Find item in current queue or newest state
+      let itemToAnalyze;
+      setFilesQueue(current => {
+        itemToAnalyze = current.find(i => i.id === itemId);
+        return current;
+      });
+
+      if (!itemToAnalyze) return;
+
+      const result = await uploadFileExtract(itemToAnalyze.file);
       
       const meta = {
-        title: result.ai_metadata?.title || item.file.name,
+        title: result.ai_metadata?.title || itemToAnalyze.file.name,
         version: result.ai_metadata?.version || 'v1.0',
         docNumber: result.ai_metadata?.doc_number || '',
         notes: result.ai_metadata?.summary || '',
@@ -256,174 +260,178 @@ export default function DocumentUpload({ onClose, onSuccess }) {
             </div>
           )}
 
-          {/* Right Side: Main Content */}
-          <div className="flex-1 p-8 overflow-y-auto bg-white flex flex-col h-full">
+          {/* Right Side: Main Content Container */}
+          <div className="flex-1 flex flex-col overflow-hidden bg-white">
             
-            {/* Operator Selection (Only when queue is empty, otherwise moved to left sidebar) */}
-            {filesQueue.length === 0 && (
-               <div className="mb-8 bg-blue-50/50 p-6 rounded-2xl border border-blue-100/50 flex flex-col space-y-4">
-                  <div className="flex items-center">
-                    <label className="text-sm font-bold text-slate-700 mr-4">當前操作者 (上傳人) *</label>
-                    <select 
-                      value={uploaderId} onChange={e => setUploaderId(e.target.value)}
-                      className="flex-1 px-4 py-2.5 border border-blue-200 rounded-xl focus:ring-2 focus:ring-blue-500 bg-white font-medium"
-                    >
-                      <option value="">請選擇上傳人員...</option>
-                      {users.map(u => <option key={u.id} value={u.id}>{u.name} {u.department ? `(${u.department})` : ''}</option>)}
-                    </select>
+            {/* Scrollable Content Area */}
+            <div className="flex-1 p-8 overflow-y-auto">
+              
+              {/* Operator Selection (Only when queue is empty) */}
+              {filesQueue.length === 0 && (
+                <div className="mb-8 bg-blue-50/50 p-6 rounded-2xl border border-blue-100/50 flex flex-col space-y-4">
+                    <div className="flex items-center">
+                      <label className="text-sm font-bold text-slate-700 mr-4">當前操作者 (上傳人) *</label>
+                      <select 
+                        value={uploaderId} onChange={e => setUploaderId(e.target.value)}
+                        className="flex-1 px-4 py-2.5 border border-blue-200 rounded-xl focus:ring-2 focus:ring-blue-500 bg-white font-medium"
+                      >
+                        <option value="">請選擇上傳人員...</option>
+                        {users.map(u => <option key={u.id} value={u.id}>{u.name} {u.department ? `(${u.department})` : ''}</option>)}
+                      </select>
+                    </div>
+                    {!uploaderId && users.length > 0 && <p className="text-xs text-blue-600 flex items-center"><Sparkles className="w-3 h-3 mr-1" /> 已自動偵測到系統使用者，請確認您的身分。</p>}
+                </div>
+              )}
+
+              {/* Empty State: Drag & Drop Area */}
+              {filesQueue.length === 0 && (
+                <div 
+                  onDragEnter={handleDrag} onDragLeave={handleDrag} onDragOver={handleDrag} onDrop={handleDrop}
+                  className={`border-4 border-dashed rounded-[2.5rem] flex flex-col items-center justify-center text-center p-12 h-full transition-all group
+                    ${isDragActive ? 'border-primary-500 bg-primary-50' : 'border-slate-100 hover:border-slate-200 hover:bg-slate-50/50'}
+                  `}
+                  onClick={() => document.getElementById('file-upload').click()}
+                >
+                  <input id="file-upload" type="file" className="hidden" multiple accept=".pdf,.docx,.doc,.xlsx,.xls,.txt" onChange={(e)=>e.target.files && processFiles(Array.from(e.target.files))}/>
+                  <div className="w-24 h-24 bg-white rounded-full shadow-lg flex items-center justify-center mb-8 group-hover:scale-110 transition-transform">
+                    <UploadCloud className={`w-12 h-12 ${isDragActive ? 'text-primary-600' : 'text-slate-300'}`} />
                   </div>
-                  {!uploaderId && users.length > 0 && <p className="text-xs text-blue-600 flex items-center"><Sparkles className="w-3 h-3 mr-1" /> 已自動偵測到系統使用者，請確認您的身分。</p>}
-               </div>
-            )}
-
-            {/* Empty State: Drag & Drop Area */}
-            {filesQueue.length === 0 && (
-              <div 
-                onDragEnter={handleDrag} onDragLeave={handleDrag} onDragOver={handleDrag} onDrop={handleDrop}
-                className={`flex-1 border-4 border-dashed rounded-[2.5rem] flex flex-col items-center justify-center text-center p-12 transition-all group
-                  ${isDragActive ? 'border-primary-500 bg-primary-50' : 'border-slate-100 hover:border-slate-200 hover:bg-slate-50/50'}
-                `}
-                onClick={() => document.getElementById('file-upload').click()}
-              >
-                <input id="file-upload" type="file" className="hidden" multiple accept=".pdf,.docx,.doc,.xlsx,.xls,.txt" onChange={(e)=>e.target.files && processFiles(Array.from(e.target.files))}/>
-                <div className="w-24 h-24 bg-white rounded-full shadow-lg flex items-center justify-center mb-8 group-hover:scale-110 transition-transform">
-                  <UploadCloud className={`w-12 h-12 ${isDragActive ? 'text-primary-600' : 'text-slate-300'}`} />
+                  <h3 className="text-2xl font-bold text-slate-800">開始上傳文件</h3>
+                  <p className="text-slate-500 mt-3 max-w-sm">將大量檔案拖拽至此，AI 會自動處理繁瑣的索引錄入工作。</p>
+                  <div className="mt-8 flex flex-wrap gap-2 justify-center">
+                    {['PDF', 'Word', 'Excel', 'TXT'].map(t => <span key={t} className="px-3 py-1 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-400">{t}</span>)}
+                  </div>
                 </div>
-                <h3 className="text-2xl font-bold text-slate-800">開始上傳文件</h3>
-                <p className="text-slate-500 mt-3 max-w-sm">將大量檔案拖拽至此，AI 會自動處理繁瑣的索引錄入工作。</p>
-                <div className="mt-8 flex flex-wrap gap-2 justify-center">
-                  {['PDF', 'Word', 'Excel', 'TXT'].map(t => <span key={t} className="px-3 py-1 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-400">{t}</span>)}
-                </div>
-              </div>
-            )}
+              )}
 
-            {/* Confirming state for active item */}
-            {currentItem && (
-              <div className="animate-in fade-in slide-in-from-right-4 duration-500 flex flex-col h-full">
-                {/* Status Bar */}
-                <div className="flex items-center justify-between mb-8 pb-4 border-b border-slate-100">
-                   <div className="flex items-center">
-                      <div className="w-10 h-10 bg-primary-50 rounded-xl flex items-center justify-center text-primary-600 mr-4">
-                         <FileText className="w-5 h-5" />
+              {/* Confirming state for active item */}
+              {currentItem && (
+                <div className="animate-in fade-in slide-in-from-right-4 duration-500">
+                  {/* Status Bar */}
+                  <div className="flex items-center justify-between mb-8 pb-4 border-b border-slate-100">
+                    <div className="flex items-center">
+                        <div className="w-10 h-10 bg-primary-50 rounded-xl flex items-center justify-center text-primary-600 mr-4">
+                          <FileText className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <h3 className="font-bold text-slate-800 truncate max-w-md">{currentItem.file.name}</h3>
+                          <p className="text-xs text-slate-400">{(currentItem.file.size / 1024).toFixed(1)} KB</p>
+                        </div>
+                    </div>
+                    <div className={`px-4 py-2 rounded-xl text-sm font-bold flex items-center 
+                        ${currentItem.status === 'extracting' ? 'bg-amber-50 text-amber-600' : 
+                          currentItem.status === 'confirming' ? 'bg-blue-50 text-blue-600' : 
+                          currentItem.status === 'success' ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-50 text-slate-500'}`}>
+                        {currentItem.status === 'extracting' && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
+                        {currentItem.status === 'success' && <CheckCircle className="w-4 h-4 mr-2" />}
+                        {currentItem.status === 'extracting' ? 'AI 正在處理中...' : 
+                        currentItem.status === 'confirming' ? 'AI 解析完畢，請確認' : 
+                        currentItem.status === 'success' ? '文件歸檔成功' : '錯誤'}
+                    </div>
+                  </div>
+
+                  {currentItem.status === 'extracting' ? (
+                    <div className="py-20 flex flex-col items-center justify-center text-center">
+                      <div className="relative w-32 h-32 mb-8">
+                          <LoadingSpinner size="lg" className="absolute inset-0" />
+                          <Sparkles className="w-12 h-12 text-amber-400 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
                       </div>
-                      <div>
-                         <h3 className="font-bold text-slate-800 truncate max-w-md">{currentItem.file.name}</h3>
-                         <p className="text-xs text-slate-400">{(currentItem.file.size / 1024).toFixed(1)} KB</p>
+                      <h4 className="text-xl font-bold text-slate-800">深度解析內容...</h4>
+                      <p className="text-slate-500 mt-2 max-w-sm">Gemma 模型正在閱讀您的文件，提取編號、版本、作者與摘要...</p>
+                    </div>
+                  ) : currentItem.status === 'success' ? (
+                    <div className="py-20 flex flex-col items-center justify-center text-center animate-in zoom-in-95">
+                      <div className="w-24 h-24 bg-emerald-100 rounded-full flex items-center justify-center mb-6">
+                          <CheckCircle className="w-12 h-12 text-emerald-600" />
                       </div>
-                   </div>
-                   <div className={`px-4 py-2 rounded-xl text-sm font-bold flex items-center 
-                      ${currentItem.status === 'extracting' ? 'bg-amber-50 text-amber-600' : 
-                        currentItem.status === 'confirming' ? 'bg-blue-50 text-blue-600' : 
-                        currentItem.status === 'success' ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-50 text-slate-500'}`}>
-                      {currentItem.status === 'extracting' && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
-                      {currentItem.status === 'success' && <CheckCircle className="w-4 h-4 mr-2" />}
-                      {currentItem.status === 'extracting' ? 'AI 正在處理中...' : 
-                       currentItem.status === 'confirming' ? 'AI 解析完畢，請確認' : 
-                       currentItem.status === 'success' ? '文件歸檔成功' : '錯誤'}
-                   </div>
+                      <h4 className="text-2xl font-bold text-slate-800">歸檔完成</h4>
+                      <p className="text-slate-500 mt-2">該文件已存入資料庫並完成向量化編碼。</p>
+                      {activeIndex < filesQueue.length - 1 && (
+                        <button onClick={() => setActiveIndex(activeIndex + 1)} className="mt-8 px-6 py-3 bg-primary-600 text-white font-bold rounded-2xl hover:bg-primary-700 transition shadow-lg flex items-center">
+                          跳至下一份檔案 <ChevronRight className="w-5 h-5 ml-2" />
+                        </button>
+                      )}
+                    </div>
+                  ) : currentItem.status === 'error' ? (
+                    <div className="py-20 flex flex-col items-center justify-center text-rose-500">
+                      <AlertCircle className="w-20 h-20 mb-6 opacity-30" />
+                      <h4 className="text-xl font-bold">發生錯誤</h4>
+                      <p className="mt-2 font-medium">{currentItem.error}</p>
+                      <button onClick={() => startExtraction(currentItem.id)} className="mt-6 text-sm font-bold underline">重試一次</button>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pb-10">
+                      <div className="md:col-span-2">
+                        <label className="block text-sm font-bold text-slate-700 mb-2">文件名稱 *</label>
+                        <input type="text" value={currentItem.metadata.title} onChange={e=>updateActiveMetadata('title', e.target.value)} className="w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:bg-white focus:ring-4 focus:ring-primary-100 transition-all font-medium" />
+                      </div>
+
+                      <div className="space-y-6">
+                        <div>
+                            <label className="block text-sm font-bold text-slate-700 mb-2 flex justify-between">文件編號 <span className="font-normal text-slate-400">(預設由系統分配)</span></label>
+                            <input type="text" value={currentItem.metadata.docNumber} onChange={e=>updateActiveMetadata('docNumber', e.target.value)} placeholder="綁定預約編號" className="w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:bg-white focus:ring-4 focus:ring-primary-100 transition-all font-mono" />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-bold text-slate-700 mb-2">版本號</label>
+                            <input type="text" value={currentItem.metadata.version} onChange={e=>updateActiveMetadata('version', e.target.value)} className="w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:bg-white focus:ring-4 focus:ring-primary-100 transition-all" />
+                        </div>
+                      </div>
+
+                      <div className="space-y-6">
+                        <div>
+                            <label className="block text-sm font-bold text-slate-700 mb-2">製定人 (Author)</label>
+                            <select value={currentItem.metadata.authorId} onChange={e=>updateActiveMetadata('authorId', e.target.value)} className="w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:bg-white focus:ring-4 focus:ring-primary-100 transition-all font-medium">
+                              <option value="">(未指定)</option>
+                              {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                            </select>
+                            {currentItem.metadata.unmatchedAuthor && (
+                              <div className="mt-3 p-3 bg-amber-50 rounded-2xl border border-amber-100 flex items-center justify-between animate-in zoom-in-95">
+                                <p className="text-xs text-amber-700 font-medium">AI 建議: <span className="font-bold underline">{currentItem.metadata.unmatchedAuthor}</span></p>
+                                <button onClick={() => handleAddSetting('author', currentItem.metadata.unmatchedAuthor, currentItem.id)} className="text-[10px] font-bold bg-amber-200 text-amber-800 px-3 py-1 rounded-full hover:bg-amber-300 transition">一鍵新增</button>
+                              </div>
+                            )}
+                        </div>
+                        <div>
+                            <label className="block text-sm font-bold text-slate-700 mb-2">檔案類別</label>
+                            <select value={currentItem.metadata.categoryId} onChange={e=>updateActiveMetadata('categoryId', e.target.value)} className="w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:bg-white focus:ring-4 focus:ring-primary-100 transition-all font-medium">
+                              <option value="">(未指定)</option>
+                              {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                            </select>
+                            {currentItem.metadata.unmatchedCategory && (
+                              <div className="mt-3 p-3 bg-amber-50 rounded-2xl border border-amber-100 flex items-center justify-between animate-in zoom-in-95">
+                                <p className="text-xs text-amber-700 font-medium">AI 建議: <span className="font-bold underline">{currentItem.metadata.unmatchedCategory}</span></p>
+                                <button onClick={() => handleAddSetting('category', currentItem.metadata.unmatchedCategory, currentItem.id)} className="text-[10px] font-bold bg-amber-200 text-amber-800 px-3 py-1 rounded-full hover:bg-amber-300 transition">一鍵新增</button>
+                              </div>
+                            )}
+                        </div>
+                      </div>
+
+                      <div className="md:col-span-2">
+                        <label className="block text-sm font-bold text-slate-700 mb-2">文件摘要 (由 AI 提取)</label>
+                        <textarea value={currentItem.metadata.notes} onChange={e=>updateActiveMetadata('notes', e.target.value)} rows="4" className="w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:bg-white focus:ring-4 focus:ring-primary-100 transition-all text-sm leading-relaxed" />
+                      </div>
+                    </div>
+                  )}
                 </div>
+              )}
+            </div>
 
-                {currentItem.status === 'extracting' ? (
-                  <div className="flex-1 flex flex-col items-center justify-center py-20 text-center">
-                     <div className="relative w-32 h-32 mb-8">
-                        <LoadingSpinner size="lg" className="absolute inset-0" />
-                        <Sparkles className="w-12 h-12 text-amber-400 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
-                     </div>
-                     <h4 className="text-xl font-bold text-slate-800">深度解析內容...</h4>
-                     <p className="text-slate-500 mt-2 max-w-sm">Gemma 模型正在閱讀您的文件，提取編號、版本、作者與摘要...</p>
-                  </div>
-                ) : currentItem.status === 'success' ? (
-                  <div className="flex-1 flex flex-col items-center justify-center py-20 text-center animate-in zoom-in-95">
-                     <div className="w-24 h-24 bg-emerald-100 rounded-full flex items-center justify-center mb-6">
-                        <CheckCircle className="w-12 h-12 text-emerald-600" />
-                     </div>
-                     <h4 className="text-2xl font-bold text-slate-800">歸檔完成</h4>
-                     <p className="text-slate-500 mt-2">該文件已存入資料庫並完成向量化編碼。</p>
-                     {activeIndex < filesQueue.length - 1 && (
-                       <button onClick={() => setActiveIndex(activeIndex + 1)} className="mt-8 px-6 py-3 bg-primary-600 text-white font-bold rounded-2xl hover:bg-primary-700 transition shadow-lg flex items-center">
-                         跳至下一份檔案 <ChevronRight className="w-5 h-5 ml-2" />
-                       </button>
-                     )}
-                  </div>
-                ) : currentItem.status === 'error' ? (
-                  <div className="flex-1 flex flex-col items-center justify-center py-20 text-rose-500">
-                     <AlertCircle className="w-20 h-20 mb-6 opacity-30" />
-                     <h4 className="text-xl font-bold">發生錯誤</h4>
-                     <p className="mt-2 font-medium">{currentItem.error}</p>
-                     <button onClick={() => startExtraction(currentItem.id)} className="mt-6 text-sm font-bold underline">重試一次</button>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pb-10">
-                    <div className="md:col-span-2">
-                       <label className="block text-sm font-bold text-slate-700 mb-2">文件名稱 *</label>
-                       <input type="text" value={currentItem.metadata.title} onChange={e=>updateActiveMetadata('title', e.target.value)} className="w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:bg-white focus:ring-4 focus:ring-primary-100 transition-all font-medium" />
-                    </div>
-
-                    <div className="space-y-6">
-                       <div>
-                          <label className="block text-sm font-bold text-slate-700 mb-2 flex justify-between">文件編號 <span className="font-normal text-slate-400">(預設由系統分配)</span></label>
-                          <input type="text" value={currentItem.metadata.docNumber} onChange={e=>updateActiveMetadata('docNumber', e.target.value)} placeholder="綁定預約編號" className="w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:bg-white focus:ring-4 focus:ring-primary-100 transition-all font-mono" />
-                       </div>
-                       <div>
-                          <label className="block text-sm font-bold text-slate-700 mb-2">版本號</label>
-                          <input type="text" value={currentItem.metadata.version} onChange={e=>updateActiveMetadata('version', e.target.value)} className="w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:bg-white focus:ring-4 focus:ring-primary-100 transition-all" />
-                       </div>
-                    </div>
-
-                    <div className="space-y-6">
-                       <div>
-                          <label className="block text-sm font-bold text-slate-700 mb-2">製定人 (Author)</label>
-                          <select value={currentItem.metadata.authorId} onChange={e=>updateActiveMetadata('authorId', e.target.value)} className="w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:bg-white focus:ring-4 focus:ring-primary-100 transition-all font-medium">
-                            <option value="">(未指定)</option>
-                            {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-                          </select>
-                          {currentItem.metadata.unmatchedAuthor && (
-                            <div className="mt-3 p-3 bg-amber-50 rounded-2xl border border-amber-100 flex items-center justify-between animate-in zoom-in-95">
-                               <p className="text-xs text-amber-700 font-medium">AI 建議: <span className="font-bold underline">{currentItem.metadata.unmatchedAuthor}</span></p>
-                               <button onClick={() => handleAddSetting('author', currentItem.metadata.unmatchedAuthor, currentItem.id)} className="text-[10px] font-bold bg-amber-200 text-amber-800 px-3 py-1 rounded-full hover:bg-amber-300 transition">一鍵新增</button>
-                            </div>
-                          )}
-                       </div>
-                       <div>
-                          <label className="block text-sm font-bold text-slate-700 mb-2">檔案類別</label>
-                          <select value={currentItem.metadata.categoryId} onChange={e=>updateActiveMetadata('categoryId', e.target.value)} className="w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:bg-white focus:ring-4 focus:ring-primary-100 transition-all font-medium">
-                            <option value="">(未指定)</option>
-                            {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                          </select>
-                          {currentItem.metadata.unmatchedCategory && (
-                            <div className="mt-3 p-3 bg-amber-50 rounded-2xl border border-amber-100 flex items-center justify-between animate-in zoom-in-95">
-                               <p className="text-xs text-amber-700 font-medium">AI 建議: <span className="font-bold underline">{currentItem.metadata.unmatchedCategory}</span></p>
-                               <button onClick={() => handleAddSetting('category', currentItem.metadata.unmatchedCategory, currentItem.id)} className="text-[10px] font-bold bg-amber-200 text-amber-800 px-3 py-1 rounded-full hover:bg-amber-300 transition">一鍵新增</button>
-                            </div>
-                          )}
-                       </div>
-                    </div>
-
-                    <div className="md:col-span-2">
-                       <label className="block text-sm font-bold text-slate-700 mb-2">文件摘要 (由 AI 提取)</label>
-                       <textarea value={currentItem.metadata.notes} onChange={e=>updateActiveMetadata('notes', e.target.value)} rows="4" className="w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:bg-white focus:ring-4 focus:ring-primary-100 transition-all text-sm leading-relaxed" />
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-            
-            {/* Action Bar for confirmed current item */}
+            {/* Sticky Footer Action Bar */}
             {currentItem && currentItem.status === 'confirming' && (
-              <div className="mt-auto pt-6 border-t border-slate-100 flex justify-between items-center bg-white">
+              <div className="px-8 py-6 border-t border-slate-100 flex justify-between items-center bg-slate-50/50">
                  <p className="text-xs text-slate-400 font-medium italic">提示: 您可以在左側隨時切換檔案進行確認</p>
                  <div className="flex space-x-3">
                     <button 
                       onClick={() => setFilesQueue(prev => prev.filter(i => i.id !== currentItem.id))}
                       className="px-6 py-3 text-rose-600 font-bold hover:bg-rose-50 rounded-2xl transition"
                     >
-                      移除
+                      移除此檔
                     </button>
                     <button 
                       onClick={() => handleConfirmSingle(activeIndex)}
-                      className="px-8 py-3 bg-primary-600 text-white font-bold rounded-2xl hover:bg-primary-700 transition shadow-lg"
+                      className="px-10 py-3 bg-primary-600 text-white font-bold rounded-2xl hover:bg-primary-700 transition shadow-lg hover:shadow-primary-200 transform hover:-translate-y-0.5 active:translate-y-0"
                     >
-                      確認並歸檔
+                      確認歸檔
                     </button>
                  </div>
               </div>
