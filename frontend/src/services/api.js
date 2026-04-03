@@ -172,4 +172,31 @@ export const batchDownload = async (documentIds, actorId) => {
   link.remove();
 };
 
+// MDF API
+export const getMdfProjects = async () => {
+  const { data } = await api.get('/mdf');
+  return data;
+};
+
+export const createMdfProject = async (projectData) => {
+  const { data } = await api.post('/mdf', projectData);
+  return data;
+};
+
+export const getMdfProject = async (id) => {
+  const { data } = await api.get(`/mdf/${id}`);
+  return data;
+};
+
+export const linkDocumentToMdf = async (projectId, itemNo, documentId) => {
+  const { data } = await api.post(`/mdf/${projectId}/links`, { item_no: itemNo, document_id: documentId });
+  return data;
+};
+
+export const unlinkDocumentFromMdf = async (linkId) => {
+  const { data } = await api.delete(`/mdf/links/${linkId}`);
+  return data;
+};
+
 export default api;
+

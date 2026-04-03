@@ -1,14 +1,17 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, FileText, Search, Settings } from 'lucide-react';
+import { LayoutDashboard, FileText, Search, Settings, Library } from 'lucide-react';
+
 import clsx from 'clsx';
 
 const navItems = [
   { icon: LayoutDashboard, label: '儀表板', path: '/' },
   { icon: FileText, label: '文件清單', path: '/documents' },
   { icon: Search, label: '語意搜尋', path: '/search' },
+  { icon: Library, label: 'MDF 管理', path: '/mdf' },
   { icon: Settings, label: '系統設定', path: '/settings' },
 ];
+
 
 export default function Sidebar() {
   return (

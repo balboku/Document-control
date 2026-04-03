@@ -71,6 +71,8 @@ class Document(Base):
     category = relationship("Category", back_populates="documents")
     versions = relationship("DocumentVersion", back_populates="document", order_by="DocumentVersion.uploaded_at.desc()")
     audit_logs = relationship("AuditLog", back_populates="document", order_by="AuditLog.created_at.desc()")
+    mdf_links = relationship("MDFDocumentLink", back_populates="document")
+
 
     __table_args__ = (
         Index("idx_documents_status", "status"),
@@ -145,3 +147,37 @@ class AuditLog(Base):
         Index("idx_audit_document_id", "document_id"),
         Index("idx_audit_created_at", "created_at"),
     )
+
+
+class MDFProject(Base):
+    __tablename__ = "mdf_projects"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    product_name = Column(String(255), nullable=False)
+    project_no = Column(String(100), unique=True, nullable=False, index=True)
+    classification = Column(String(50), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    linked_documents = relationship("MDFDocumentLink", back_populates="project", cascade="all, delete-orphan")
+
+
+class MDFDocumentLink(Base):
+    __tablename__ = "mdf_document_links"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    mdf_project_id = Column(UUID(as_uuid=True), ForeignKey("mdf_projects.id"), nullable=False)
+    item_no = Column(Integer, nullable=False)  # Item 1~18
+    document_id = Column(UUID(as_uuid=True), ForeignKey("documents.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Relationships
+    project = relationship("MDFProject", back_populates="linked_documents")
+    document = relationship("Document", back_populates="mdf_links")
+
+    __table_args__ = (
+        Index("idx_mdf_links_project_id", "mdf_project_id"),
+        Index("idx_mdf_links_document_id", "document_id"),
+    )
+

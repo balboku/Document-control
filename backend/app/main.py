@@ -8,7 +8,8 @@ from fastapi.staticfiles import StaticFiles
 
 from app.database import engine, Base
 from app.config import get_settings
-from app.routers import settings, documents, search, export
+from app.routers import settings, documents, search, export, mdf
+
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -58,6 +59,8 @@ app.include_router(settings.router)
 app.include_router(documents.router)
 app.include_router(search.router)
 app.include_router(export.router)
+app.include_router(mdf.router)
+
 
 
 @app.get("/")

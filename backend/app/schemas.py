@@ -271,8 +271,44 @@ class DocumentStatsResponse(BaseModel):
     today_upload_count: int
     recent_documents: List[DocumentResponse]
 
-class RelationAnalysisResponse(BaseModel):
-    document_id: UUID
     analysis_text: str
     related_documents: List[Dict[str, Any]]
     cached: bool = False
+
+
+# ============ MDF (Medical Device File) Schemas ============
+
+class MDFDocumentLinkBase(BaseModel):
+    item_no: int = Field(..., ge=1, le=18)
+    document_id: UUID
+
+class MDFDocumentLinkCreate(MDFDocumentLinkBase):
+    pass
+
+class MDFDocumentLinkResponse(MDFDocumentLinkBase):
+    id: UUID
+    mdf_project_id: UUID
+    created_at: datetime
+    # Document details for response
+    document: Optional[DocumentResponse] = None
+
+    class Config:
+        from_attributes = True
+
+class MDFProjectBase(BaseModel):
+    product_name: str = Field(..., min_length=1, max_length=255)
+    project_no: str = Field(..., min_length=1, max_length=100)
+    classification: Optional[str] = Field(None, max_length=50)
+
+class MDFProjectCreate(MDFProjectBase):
+    pass
+
+class MDFProjectResponse(MDFProjectBase):
+    id: UUID
+    created_at: datetime
+    updated_at: datetime
+    linked_documents: List[MDFDocumentLinkResponse] = []
+
+    class Config:
+        from_attributes = True
+
