@@ -25,4 +25,4 @@ ENV DATABASE_URL=postgresql+asyncpg://dms_user:dms_password_2026@db:5432/dms
 EXPOSE 8000
 
 # Start command
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
