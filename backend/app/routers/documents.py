@@ -7,8 +7,8 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy import select, update as sql_update
-from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from datetime import datetime
 
 from app.database import get_db
