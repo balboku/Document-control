@@ -106,7 +106,7 @@ export default function DocumentList() {
             onClick={() => setShowUpload(true)}
             className="flex items-center px-4 py-2.5 bg-primary-600 text-white rounded-xl hover:bg-primary-700 transition shadow-sm font-medium text-sm"
           >
-            <Plus className="w-4 h-4 mr-2" /> 上傳文件
+            <Plus className="w-4 h-4 mr-2" /> 新增文件卡片
           </button>
         </div>
       </div>

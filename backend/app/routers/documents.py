@@ -19,7 +19,7 @@ from app.schemas import (
     DocumentListResponse, ReserveRequest, ReserveResponse,
     AuditLogResponse, BatchDownloadRequest, DocumentStatsResponse,
     RelationAnalysisResponse, DocumentHistoryResponse, RelatedDocumentResponse,
-    ExtractMetadataResponse,
+    ExtractMetadataResponse, DocumentCreate,
 )
 from app.services import document_service
 from app.services.document_service import (
@@ -144,6 +144,57 @@ async def reserve_number(
         doc_number=document.doc_number,
         status=document.status,
         reserved_at=document.reserved_at,
+    )
+
+
+@router.post("/card", response_model=DocumentResponse)
+async def create_document_card(
+    data: DocumentCreate,
+    db: AsyncSession = Depends(get_db),
+):
+    """Create a document card without a file."""
+    # Generate document number
+    doc_number = await document_service.generate_doc_number(db)
+    
+    document = Document(
+        doc_number=doc_number,
+        title=data.title,
+        status=data.status or "draft",
+        author_id=data.author_id,
+        category_id=data.category_id,
+        keywords=data.keywords,
+        notes=data.notes,
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow(),
+    )
+    
+    db.add(document)
+    await db.commit()
+    await db.refresh(document)
+    
+    # Reload with relationships for response
+    result = await db.execute(
+        select(Document)
+        .options(selectinload(Document.author), selectinload(Document.category))
+        .where(Document.id == document.id)
+    )
+    document = result.unique().scalar_one()
+    
+    return DocumentResponse(
+        id=document.id,
+        doc_number=document.doc_number,
+        title=document.title,
+        status=document.status,
+        current_version=document.current_version,
+        author_id=document.author_id,
+        author_name=document.author.name if document.author else None,
+        category_id=document.category_id,
+        category_name=document.category.name if document.category else None,
+        keywords=document.keywords,
+        notes=document.notes,
+        reserved_at=document.reserved_at,
+        created_at=document.created_at,
+        updated_at=document.updated_at,
     )
 
 

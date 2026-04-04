@@ -107,6 +107,14 @@ class DocumentConfirm(BaseModel):
     actor_id: Optional[UUID] = None
     file_hash: Optional[str] = None  # SHA-256 hash for duplicate detection
 
+class DocumentCreate(BaseModel):
+    title: str = Field(..., min_length=1, max_length=500)
+    category_id: Optional[UUID] = None
+    author_id: Optional[UUID] = None
+    notes: Optional[str] = None
+    keywords: Optional[List[str]] = None
+    status: Optional[str] = "draft"
+
 class DocumentUpdate(BaseModel):
     title: Optional[str] = None
     author_id: Optional[UUID] = None

@@ -72,6 +72,11 @@ export const confirmDocument = async (confirmData) => {
   return data;
 };
 
+export const createDocumentCard = async (cardData) => {
+  const { data } = await api.post('/documents/card', cardData);
+  return data;
+};
+
 export const reserveDocumentNumber = async (reserveData) => {
   const { data } = await api.post('/documents/reserve', reserveData);
   return data;
