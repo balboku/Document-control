@@ -3,14 +3,15 @@ from typing import List
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, delete
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models import MDFProject, MDFDocumentLink, Document
 from app.schemas import (
-    MDFProjectCreate, MDFProjectResponse,
-    MDFDocumentLinkCreate, MDFDocumentLinkResponse
+    MDFProjectCreate, MDFProjectUpdate, MDFProjectResponse,
+    MDFDocumentLinkCreate, MDFDocumentLinkResponse,
+    DocumentBriefResponse
 )
 
 router = APIRouter(prefix="/api/mdf", tags=["MDF"])
@@ -19,12 +20,29 @@ router = APIRouter(prefix="/api/mdf", tags=["MDF"])
 @router.get("", response_model=List[MDFProjectResponse])
 async def get_mdf_projects(db: AsyncSession = Depends(get_db)):
     """Get all MDF projects."""
-    result = await db.execute(
+    stmt = (
         select(MDFProject)
-        .options(joinedload(MDFProject.linked_documents).joinedload(MDFDocumentLink.document))
+        .options(
+            selectinload(MDFProject.linked_documents)
+            .joinedload(MDFDocumentLink.document)
+            .selectinload(Document.author),
+            selectinload(MDFProject.linked_documents)
+            .joinedload(MDFDocumentLink.document)
+            .selectinload(Document.category)
+        )
         .order_by(MDFProject.created_at.desc())
     )
-    return result.unique().scalars().all()
+    result = await db.execute(stmt)
+    projects = result.unique().scalars().all()
+    
+    # Manual mapping for author/category names in DocumentBriefResponse
+    for p in projects:
+        for link in p.linked_documents:
+            if link.document:
+                link.document.author_name = link.document.author.name if link.document.author else None
+                link.document.category_name = link.document.category.name if link.document.category else None
+                
+    return projects
 
 
 
@@ -60,15 +78,74 @@ async def create_mdf_project(
 @router.get("/{project_id}", response_model=MDFProjectResponse)
 async def get_mdf_project_detail(project_id: UUID, db: AsyncSession = Depends(get_db)):
     """Get single MDF project with all 18 items linked."""
-    result = await db.execute(
+    stmt = (
         select(MDFProject)
-        .options(joinedload(MDFProject.linked_documents).joinedload(MDFDocumentLink.document))
+        .options(
+            selectinload(MDFProject.linked_documents)
+            .joinedload(MDFDocumentLink.document)
+            .selectinload(Document.author),
+            selectinload(MDFProject.linked_documents)
+            .joinedload(MDFDocumentLink.document)
+            .selectinload(Document.category)
+        )
         .where(MDFProject.id == project_id)
     )
+    result = await db.execute(stmt)
     project = result.unique().scalar_one_or_none()
+    
     if not project:
         raise HTTPException(status_code=404, detail="MDF Project not found")
+        
+    # Manual mapping for author/category names
+    for link in project.linked_documents:
+        if link.document:
+            link.document.author_name = link.document.author.name if link.document.author else None
+            link.document.category_name = link.document.category.name if link.document.category else None
+            
     return project
+
+
+@router.put("/{project_id}", response_model=MDFProjectResponse)
+async def update_mdf_project(
+    project_id: UUID,
+    data: MDFProjectUpdate,
+    db: AsyncSession = Depends(get_db)
+):
+    """Update an MDF project's metadata."""
+    result = await db.execute(select(MDFProject).where(MDFProject.id == project_id))
+    project = result.scalar_one_or_none()
+    if not project:
+        raise HTTPException(status_code=404, detail="MDF Project not found")
+
+    update_data = data.model_dump(exclude_unset=True)
+    
+    # Check project_no uniqueness if being changed
+    if "project_no" in update_data and update_data["project_no"] != project.project_no:
+        existing = await db.execute(select(MDFProject).where(MDFProject.project_no == update_data["project_no"]))
+        if existing.scalar_one_or_none():
+            raise HTTPException(status_code=400, detail="Project number already exists")
+
+    for key, value in update_data.items():
+        setattr(project, key, value)
+    
+    await db.commit()
+    
+    # Reload with relationships
+    return await get_mdf_project_detail(project_id, db)
+
+
+@router.delete("/{project_id}")
+async def delete_mdf_project(project_id: UUID, db: AsyncSession = Depends(get_db)):
+    """Delete an MDF project (Cascade will handle links)."""
+    result = await db.execute(select(MDFProject).where(MDFProject.id == project_id))
+    project = result.scalar_one_or_none()
+    if not project:
+        raise HTTPException(status_code=404, detail="MDF Project not found")
+
+    await db.delete(project)
+    await db.commit()
+    
+    return {"status": "success", "message": f"MDF Project {project.project_no} deleted."}
 
 
 @router.post("/{project_id}/links", response_model=MDFDocumentLinkResponse)

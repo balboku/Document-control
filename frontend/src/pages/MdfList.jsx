@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Library, Search, ChevronRight, X } from 'lucide-react';
-import { getMdfProjects, createMdfProject } from '../services/api';
+import { Plus, Library, Search, ChevronRight, X, Edit2, Trash2 } from 'lucide-react';
+import { getMdfProjects, createMdfProject, updateMdfProject, deleteMdfProject } from '../services/api';
 import LoadingSpinner from '../components/common/LoadingSpinner';
 
 export default function MdfList() {
@@ -9,9 +9,11 @@ export default function MdfList() {
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
+  const [modalMode, setModalMode] = useState('create'); // 'create' or 'edit'
+  const [currentProjectId, setCurrentProjectId] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   
-  // New Project Form
+  // Project Form
   const [formData, setFormData] = useState({
     product_name: '',
     project_no: '',
@@ -36,17 +38,54 @@ export default function MdfList() {
     }
   };
 
-  const handleCreate = async (e) => {
+  const handleOpenCreate = () => {
+    setModalMode('create');
+    setFormData({ product_name: '', project_no: '', classification: '' });
+    setError('');
+    setShowModal(true);
+  };
+
+  const handleOpenEdit = (e, project) => {
+    e.stopPropagation();
+    setModalMode('edit');
+    setCurrentProjectId(project.id);
+    setFormData({
+      product_name: project.product_name,
+      project_no: project.project_no,
+      classification: project.classification || ''
+    });
+    setError('');
+    setShowModal(true);
+  };
+
+  const handleDelete = async (e, project) => {
+    e.stopPropagation();
+    if (!window.confirm(`確定要刪除專案「${project.product_name} (${project.project_no})」嗎？\n以此專案連結的文件設定將會被清空。`)) {
+      return;
+    }
+
+    try {
+      await deleteMdfProject(project.id);
+      fetchProjects();
+    } catch (err) {
+      alert(err.response?.data?.detail || '刪除失敗');
+    }
+  };
+
+  const handleSave = async (e) => {
     e.preventDefault();
     setSaving(true);
     setError('');
     try {
-      await createMdfProject(formData);
+      if (modalMode === 'create') {
+        await createMdfProject(formData);
+      } else {
+        await updateMdfProject(currentProjectId, formData);
+      }
       setShowModal(false);
-      setFormData({ product_name: '', project_no: '', classification: '' });
       fetchProjects();
     } catch (err) {
-      setError(err.response?.data?.detail || '建立專案失敗');
+      setError(err.response?.data?.detail || (modalMode === 'create' ? '建立失敗' : '更新失敗'));
     } finally {
       setSaving(false);
     }
@@ -65,7 +104,7 @@ export default function MdfList() {
           <p className="text-slate-500 mt-1">管理各項次醫療器材標準文件與技術文件 (Technical File)</p>
         </div>
         <button 
-          onClick={() => setShowModal(true)}
+          onClick={handleOpenCreate}
           className="flex items-center justify-center px-5 py-2.5 bg-primary-600 text-white rounded-xl hover:bg-primary-700 transition-all duration-200 shadow-sm font-medium"
         >
           <Plus className="w-5 h-5 mr-2" />
@@ -104,7 +143,7 @@ export default function MdfList() {
                   <th className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-widest">專案編號</th>
                   <th className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-widest">分級分類</th>
                   <th className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-widest">建立日期</th>
-                  <th className="px-6 py-4 text-right text-xs font-bold text-slate-500 uppercase tracking-widest text-transparent">操作</th>
+                  <th className="px-6 py-4 text-right text-xs font-bold text-slate-500 uppercase tracking-widest">操作</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-slate-100">
@@ -132,7 +171,23 @@ export default function MdfList() {
                       {new Date(project.created_at).toLocaleDateString()}
                     </td>
                     <td className="px-6 py-5 text-right">
-                      <ChevronRight className="w-5 h-5 ml-auto text-slate-300 group-hover:text-primary-500 transform group-hover:translate-x-1 transition-all" />
+                      <div className="flex items-center justify-end space-x-2">
+                        <button 
+                          onClick={(e) => handleOpenEdit(e, project)}
+                          className="p-2 text-slate-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-all"
+                          title="編輯"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                        <button 
+                          onClick={(e) => handleDelete(e, project)}
+                          className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                          title="刪除"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                        <ChevronRight className="w-5 h-5 text-slate-300 group-hover:text-primary-500 transform group-hover:translate-x-1 transition-all" />
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -142,19 +197,19 @@ export default function MdfList() {
         </div>
       </div>
 
-      {/* Create Modal */}
+      {/* Modal */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowModal(false)} />
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md relative z-10 animate-in zoom-in-95 duration-200">
             <div className="flex items-center justify-between p-6 border-b border-slate-100">
-              <h3 className="text-xl font-bold text-slate-900">新增 MDF 專案</h3>
+              <h3 className="text-xl font-bold text-slate-900">{modalMode === 'create' ? '新增 MDF 專案' : '編輯 MDF 專案'}</h3>
               <button onClick={() => setShowModal(false)} className="text-slate-400 hover:text-slate-600 transition-colors">
                 <X className="w-6 h-6" />
               </button>
             </div>
             
-            <form onSubmit={handleCreate} className="p-6 space-y-5">
+            <form onSubmit={handleSave} className="p-6 space-y-5">
               {error && (
                 <div className="p-3 bg-red-50 text-red-600 text-sm rounded-lg border border-red-100 font-medium">
                   {error}
@@ -207,7 +262,7 @@ export default function MdfList() {
                   disabled={saving}
                   className="flex-1 px-4 py-2.5 bg-primary-600 text-white rounded-xl hover:bg-primary-700 disabled:opacity-50 transition-all font-medium shadow-sm"
                 >
-                  {saving ? '處理中...' : '確認建立'}
+                  {saving ? '處理中...' : '確認儲存'}
                 </button>
               </div>
             </form>

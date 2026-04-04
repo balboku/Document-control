@@ -159,6 +159,21 @@ class DocumentResponse(BaseModel):
         from_attributes = True
 
 
+class DocumentBriefResponse(BaseModel):
+    id: UUID
+    doc_number: str
+    title: Optional[str]
+    status: str
+    current_version: Optional[str]
+    author_name: Optional[str] = None
+    category_name: Optional[str] = None
+    created_at: datetime
+    updated_at: Optional[datetime]
+
+    class Config:
+        from_attributes = True
+
+
 class DocumentDetailResponse(DocumentResponse):
     versions: List[DocumentVersionResponse] = []
 
@@ -303,7 +318,7 @@ class MDFDocumentLinkResponse(MDFDocumentLinkBase):
     mdf_project_id: UUID
     created_at: datetime
     # Document details for response
-    document: Optional[DocumentResponse] = None
+    document: Optional[DocumentBriefResponse] = None
 
     class Config:
         from_attributes = True
@@ -315,6 +330,11 @@ class MDFProjectBase(BaseModel):
 
 class MDFProjectCreate(MDFProjectBase):
     pass
+
+class MDFProjectUpdate(BaseModel):
+    product_name: Optional[str] = Field(None, min_length=1, max_length=255)
+    project_no: Optional[str] = Field(None, min_length=1, max_length=100)
+    classification: Optional[str] = Field(None, max_length=50)
 
 class MDFProjectResponse(MDFProjectBase):
     id: UUID

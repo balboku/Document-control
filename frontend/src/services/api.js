@@ -194,6 +194,16 @@ export const createMdfProject = async (projectData) => {
   return data;
 };
 
+export const updateMdfProject = async (id, projectData) => {
+  const { data } = await api.put(`/mdf/${id}`, projectData);
+  return data;
+};
+
+export const deleteMdfProject = async (id) => {
+  const { data } = await api.delete(`/mdf/${id}`);
+  return data;
+};
+
 export const getMdfProject = async (id) => {
   const { data } = await api.get(`/mdf/${id}`);
   return data;

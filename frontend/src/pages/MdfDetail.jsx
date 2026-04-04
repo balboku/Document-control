@@ -2,9 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { 
   ArrowLeft, FileText, Link as LinkIcon, Trash2, Plus, 
-  Search, X, Check, ExternalLink, Library, LayoutGrid, List as ListIcon
+  Search, X, Check, ExternalLink, Library, LayoutGrid, List as ListIcon,
+  Edit2
 } from 'lucide-react';
-import { getMdfProject, getDocuments, linkDocumentToMdf, unlinkDocumentFromMdf } from '../services/api';
+import { 
+  getMdfProject, getDocuments, linkDocumentToMdf, unlinkDocumentFromMdf,
+  updateMdfProject, deleteMdfProject 
+} from '../services/api';
 import LoadingSpinner from '../components/common/LoadingSpinner';
 import StatusBadge from '../components/common/StatusBadge';
 import { clsx } from 'clsx';
@@ -23,6 +27,16 @@ export default function MdfDetail() {
   const [project, setProject] = useState(null);
   const [loading, setLoading] = useState(true);
   
+  // Edit Project Modal
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editFormData, setEditFormData] = useState({
+    product_name: '',
+    project_no: '',
+    classification: ''
+  });
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [editError, setEditError] = useState('');
+
   // Link Document Modal
   const [showPicker, setShowPicker] = useState(false);
   const [currentItemNo, setCurrentItemNo] = useState(null);
@@ -40,10 +54,49 @@ export default function MdfDetail() {
     try {
       const data = await getMdfProject(id);
       setProject(data);
+      // Initialize edit form
+      setEditFormData({
+        product_name: data.product_name,
+        project_no: data.project_no,
+        classification: data.classification || ''
+      });
     } catch (e) {
       console.error('Fetch MDF project failed', e);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleOpenEdit = () => {
+    setEditError('');
+    setShowEditModal(true);
+  };
+
+  const handleSaveEdit = async (e) => {
+    e.preventDefault();
+    setSavingEdit(true);
+    setEditError('');
+    try {
+      await updateMdfProject(id, editFormData);
+      setShowEditModal(false);
+      fetchProject();
+    } catch (err) {
+      setEditError(err.response?.data?.detail || '更新專案失敗');
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  const handleDeleteProject = async () => {
+    if (!window.confirm(`確定要刪除專案「${project.product_name}」嗎？\n所有的文件連結將被移除，此操作不可復原。`)) {
+      return;
+    }
+
+    try {
+      await deleteMdfProject(id);
+      navigate('/mdf');
+    } catch (err) {
+      alert(err.response?.data?.detail || '刪除專案失敗');
     }
   };
 
@@ -80,11 +133,9 @@ export default function MdfDetail() {
   };
 
   const handleUnlink = async (linkId) => {
-    console.log('Unlinking linkId:', linkId);
     if (!window.confirm('確定要移除此文件的連結嗎？ (文件本身不會被刪除)')) return;
     try {
       await unlinkDocumentFromMdf(linkId);
-      console.log('Unlink success');
       fetchProject();
     } catch (e) {
       console.error('Unlink failed', e);
@@ -131,10 +182,27 @@ export default function MdfDetail() {
           </div>
         </div>
         
-        <div className="flex items-center gap-3 p-1.5 bg-slate-50 rounded-xl border border-slate-100 self-start md:self-center">
-          <div className="flex items-center px-3 py-1.5 bg-white rounded-lg shadow-sm">
+        <div className="flex items-center gap-4 self-start md:self-center">
+          <div className="flex items-center px-3 py-1.5 bg-slate-50 rounded-lg shadow-sm border border-slate-100">
             <Library className="w-4 h-4 text-primary-600 mr-2" />
             <span className="text-sm font-bold text-slate-700">{project.linked_documents.length} 份關聯文件</span>
+          </div>
+          
+          <div className="flex items-center gap-2">
+            <button 
+              onClick={handleOpenEdit}
+              className="p-2.5 text-slate-600 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 hover:text-primary-600 hover:border-primary-200 transition-all shadow-sm"
+              title="編輯專案"
+            >
+              <Edit2 className="w-5 h-5" />
+            </button>
+            <button 
+              onClick={handleDeleteProject}
+              className="p-2.5 text-slate-600 bg-white border border-slate-200 rounded-xl hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-all shadow-sm"
+              title="刪除專案代號"
+            >
+              <Trash2 className="w-5 h-5" />
+            </button>
           </div>
         </div>
       </div>
@@ -221,6 +289,76 @@ export default function MdfDetail() {
           );
         })}
       </div>
+
+      {/* Edit Modal */}
+      {showEditModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowEditModal(false)} />
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md relative z-10 animate-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between p-6 border-b border-slate-100">
+              <h3 className="text-xl font-bold text-slate-900">編輯 MDF 專案</h3>
+              <button onClick={() => setShowEditModal(false)} className="text-slate-400 hover:text-slate-600 transition-colors">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+            
+            <form onSubmit={handleSaveEdit} className="p-6 space-y-5">
+              {editError && (
+                <div className="p-3 bg-red-50 text-red-600 text-sm rounded-lg border border-red-100 font-medium">
+                  {editError}
+                </div>
+              )}
+              
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-1.5">產品名稱 <span className="text-red-500">*</span></label>
+                <input 
+                  type="text" required
+                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-primary-500 outline-none transition-all"
+                  value={editFormData.product_name}
+                  onChange={e => setEditFormData({...editFormData, product_name: e.target.value})}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-1.5">專案編號 <span className="text-red-500">*</span></label>
+                <input 
+                  type="text" required
+                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-primary-500 outline-none transition-all"
+                  value={editFormData.project_no}
+                  onChange={e => setEditFormData({...editFormData, project_no: e.target.value})}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-1.5">分級分類</label>
+                <input 
+                  type="text"
+                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-primary-500 outline-none transition-all"
+                  value={editFormData.classification}
+                  onChange={e => setEditFormData({...editFormData, classification: e.target.value})}
+                />
+              </div>
+
+              <div className="pt-2 flex space-x-3">
+                <button 
+                  type="button"
+                  onClick={() => setShowEditModal(false)}
+                  className="flex-1 px-4 py-2.5 border border-slate-200 text-slate-600 rounded-xl hover:bg-slate-50 transition-colors font-medium"
+                >
+                  取消
+                </button>
+                <button 
+                  type="submit"
+                  disabled={savingEdit}
+                  className="flex-1 px-4 py-2.5 bg-primary-600 text-white rounded-xl hover:bg-primary-700 disabled:opacity-50 transition-all font-medium shadow-sm"
+                >
+                  {savingEdit ? '處理中...' : '確認儲存'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Picker Modal */}
       {showPicker && (
