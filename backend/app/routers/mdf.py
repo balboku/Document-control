@@ -20,9 +20,13 @@ router = APIRouter(prefix="/api/mdf", tags=["MDF"])
 async def get_mdf_projects(db: AsyncSession = Depends(get_db)):
     """Get all MDF projects."""
     result = await db.execute(
-        select(MDFProject).order_by(MDFProject.created_at.desc())
+        select(MDFProject)
+        .options(joinedload(MDFProject.linked_documents).joinedload(MDFDocumentLink.document))
+        .order_by(MDFProject.created_at.desc())
     )
-    return result.scalars().all()
+    return result.unique().scalars().all()
+
+
 
 
 @router.post("", response_model=MDFProjectResponse)
@@ -40,43 +44,40 @@ async def create_mdf_project(
     new_project = MDFProject(**data.model_dump())
     db.add(new_project)
     await db.commit()
-    await db.refresh(new_project)
-    return new_project
+    
+    # Reload with joinedload to avoid lazy loading error during serialization
+    stmt = (
+        select(MDFProject)
+        .options(joinedload(MDFProject.linked_documents).joinedload(MDFDocumentLink.document))
+        .where(MDFProject.id == new_project.id)
+    )
+    result = await db.execute(stmt)
+    return result.unique().scalar_one()
+
+
 
 
 @router.get("/{project_id}", response_model=MDFProjectResponse)
-async def get_mdf_project_detail(
-    project_id: UUID,
-    db: AsyncSession = Depends(get_db)
-):
-    """Get MDF project detail with all linked documents."""
-    stmt = (
+async def get_mdf_project_detail(project_id: UUID, db: AsyncSession = Depends(get_db)):
+    """Get single MDF project with all 18 items linked."""
+    result = await db.execute(
         select(MDFProject)
-        .options(
-            joinedload(MDFProject.linked_documents)
-            .joinedload(MDFDocumentLink.document)
-            .joinedload(Document.author),
-            joinedload(MDFProject.linked_documents)
-            .joinedload(MDFDocumentLink.document)
-            .joinedload(Document.category)
-        )
+        .options(joinedload(MDFProject.linked_documents).joinedload(MDFDocumentLink.document))
         .where(MDFProject.id == project_id)
     )
-    result = await db.execute(stmt)
     project = result.unique().scalar_one_or_none()
-    
     if not project:
         raise HTTPException(status_code=404, detail="MDF Project not found")
-    
     return project
 
 
 @router.post("/{project_id}/links", response_model=MDFDocumentLinkResponse)
 async def link_document_to_mdf(
-    project_id: UUID,
-    data: MDFDocumentLinkCreate,
+    project_id: UUID, 
+    data: MDFDocumentLinkCreate, 
     db: AsyncSession = Depends(get_db)
 ):
+
     """Link a document to an MDF project item (1-18)."""
     # Check if project exists
     result = await db.execute(select(MDFProject).where(MDFProject.id == project_id))

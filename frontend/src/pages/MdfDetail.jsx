@@ -80,14 +80,18 @@ export default function MdfDetail() {
   };
 
   const handleUnlink = async (linkId) => {
+    console.log('Unlinking linkId:', linkId);
     if (!window.confirm('確定要移除此文件的連結嗎？ (文件本身不會被刪除)')) return;
     try {
       await unlinkDocumentFromMdf(linkId);
+      console.log('Unlink success');
       fetchProject();
     } catch (e) {
       console.error('Unlink failed', e);
+      alert('解除連結失敗');
     }
   };
+
 
   if (loading) return <div className="h-full flex items-center justify-center"><LoadingSpinner /></div>;
   if (!project) return (
@@ -188,15 +192,19 @@ export default function MdfDetail() {
                           </div>
                         </div>
                         
-                        <div className="absolute top-2 right-2 flex space-x-1 opacity-0 group-hover/doc:opacity-100 transition-opacity">
+                        <div className="absolute top-2 right-2 flex space-x-1 opacity-0 group-hover/doc:opacity-100 transition-opacity z-10">
                           <button 
-                             onClick={() => handleUnlink(link.id)}
-                             className="p-1.5 bg-white border border-red-100 text-red-500 rounded-lg hover:bg-red-500 hover:text-white hover:border-red-500 transition-all shadow-sm"
+                             onClick={(e) => {
+                               e.stopPropagation();
+                               handleUnlink(link.id);
+                             }}
+                             className="p-1.5 bg-white border border-red-100 text-red-500 rounded-lg hover:bg-red-500 hover:text-white hover:border-red-500 transition-all shadow-sm pointer-events-auto"
                              title="移除連結"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         </div>
+
                       </div>
                     ))}
                   </div>

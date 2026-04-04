@@ -271,9 +271,12 @@ class DocumentStatsResponse(BaseModel):
     today_upload_count: int
     recent_documents: List[DocumentResponse]
 
+class RelationAnalysisResponse(BaseModel):
+    document_id: UUID
     analysis_text: str
     related_documents: List[Dict[str, Any]]
     cached: bool = False
+
 
 
 # ============ MDF (Medical Device File) Schemas ============
