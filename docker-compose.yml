@@ -15,5 +15,25 @@ services:
       - ./backend/init.sql:/docker-entrypoint-initdb.d/init.sql
     restart: unless-stopped
 
+  backend:
+    build: ./backend
+    container_name: dms-backend
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://dms_user:dms_password_2026@db:5432/dms
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    container_name: dms-frontend
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
 volumes:
   pgdata:
