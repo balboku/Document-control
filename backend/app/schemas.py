@@ -145,9 +145,11 @@ class DocumentResponse(BaseModel):
     reserved_at: Optional[datetime]
     created_at: datetime
     updated_at: Optional[datetime]
+    mdf_links: List["MDFLinkInfo"] = []
 
     class Config:
         from_attributes = True
+
 
 class DocumentDetailResponse(DocumentResponse):
     versions: List[DocumentVersionResponse] = []
@@ -314,4 +316,21 @@ class MDFProjectResponse(MDFProjectBase):
 
     class Config:
         from_attributes = True
+
+
+class MDFProjectBasicInfo(BaseModel):
+    project_no: str
+    product_name: str
+
+    class Config:
+        from_attributes = True
+
+
+class MDFLinkInfo(BaseModel):
+    item_no: int
+    project: MDFProjectBasicInfo
+
+    class Config:
+        from_attributes = True
+
 

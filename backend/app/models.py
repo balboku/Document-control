@@ -69,9 +69,10 @@ class Document(Base):
     # Relationships
     author = relationship("User", back_populates="authored_documents", foreign_keys=[author_id])
     category = relationship("Category", back_populates="documents")
-    versions = relationship("DocumentVersion", back_populates="document", order_by="DocumentVersion.uploaded_at.desc()")
-    audit_logs = relationship("AuditLog", back_populates="document", order_by="AuditLog.created_at.desc()")
-    mdf_links = relationship("MDFDocumentLink", back_populates="document")
+    versions = relationship("DocumentVersion", back_populates="document", order_by="DocumentVersion.uploaded_at.desc()", cascade="all, delete-orphan")
+    audit_logs = relationship("AuditLog", back_populates="document", order_by="AuditLog.created_at.desc()", cascade="all, delete-orphan")
+    mdf_links = relationship("MDFDocumentLink", back_populates="document", cascade="all, delete-orphan")
+
 
 
     __table_args__ = (

@@ -9,7 +9,8 @@ from sqlalchemy import select, func, desc, and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload, joinedload
 
-from app.models import Document, DocumentVersion, DocumentChunk, AuditLog, NumberFormat, User, Category
+from app.models import Document, DocumentVersion, DocumentChunk, AuditLog, NumberFormat, User, Category, MDFDocumentLink
+
 from app.services.file_parser import extract_text
 from app.services.ai_service import extract_metadata, analyze_relations_with_ai
 from app.services.embedding_service import generate_embeddings, check_semantic_duplicate
@@ -416,7 +417,9 @@ async def get_documents(
     query = select(Document).options(
         joinedload(Document.author),
         joinedload(Document.category),
+        selectinload(Document.mdf_links).joinedload(MDFDocumentLink.project),
     )
+
     count_query = select(func.count(Document.id))
     
     # Apply filters

@@ -185,7 +185,9 @@ async def get_documents(
             reserved_at=doc.reserved_at,
             created_at=doc.created_at,
             updated_at=doc.updated_at,
+            mdf_links=doc.mdf_links,
         ))
+
     
     return DocumentListResponse(
         items=items,
@@ -524,3 +526,42 @@ async def reindex_all_documents_endpoint(
     """Re-index ALL documents that are missing embeddings."""
     result = await reindex_all_documents(db)
     return result
+@router.delete("/{doc_id}")
+async def delete_document(doc_id: UUID, db: AsyncSession = Depends(get_db)):
+    """
+    Delete a document, its physical files, and all associated records 
+    (versions, audit logs, mdf links).
+    """
+    # Get document with all its versions to find file paths
+    result = await db.execute(
+        select(Document)
+        .options(selectinload(Document.versions))
+        .where(Document.id == doc_id)
+    )
+    document = result.unique().scalar_one_or_none()
+    
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+    
+    # Track files removed for logging
+    removed_files = []
+    
+    # 1. Delete physical files from all versions
+    for version in document.versions:
+        if version.file_path and os.path.exists(version.file_path):
+            try:
+                os.remove(version.file_path)
+                removed_files.append(version.file_path)
+            except Exception as e:
+                # Log error but continue with DB deletion
+                print(f"Error removing physical file {version.file_path}: {e}")
+    
+    # 2. Delete document record (Cascase will handle versions, audit_logs, mdf_links)
+    await db.delete(document)
+    await db.commit()
+    
+    return {
+        "status": "success",
+        "message": f"Document {document.doc_number} and {len(removed_files)} physical files deleted.",
+        "removed_files_count": len(removed_files)
+    }

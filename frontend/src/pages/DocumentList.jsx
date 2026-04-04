@@ -1,12 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { getDocuments, exportDocumentListCSV, exportDocumentListExcel, getSettingsUsers, getSettingsCategories } from '../services/api';
+import { 
+  getDocuments, exportDocumentListCSV, exportDocumentListExcel, 
+  getSettingsUsers, getSettingsCategories, deleteDocument 
+} from '../services/api';
+
 import DocumentUpload from '../components/documents/DocumentUpload';
 import DocumentDetailModal from '../components/documents/DocumentDetailModal';
 import StatusBadge from '../components/common/StatusBadge';
 import FileIcon from '../components/common/FileIcon';
 import LoadingSpinner from '../components/common/LoadingSpinner';
 import { format } from 'date-fns';
-import { Filter, Search, Download, Plus, Layers, User, MoreVertical, FileText } from 'lucide-react';
+import { Filter, Search, Download, Plus, Layers, User, MoreVertical, FileText, Trash2 } from 'lucide-react';
+
 
 export default function DocumentList() {
   const [documents, setDocuments] = useState([]);
@@ -67,6 +72,21 @@ export default function DocumentList() {
     if (format === 'csv') await exportDocumentListCSV({ filters });
     else await exportDocumentListExcel({ filters });
   };
+
+  const handleDelete = async (docId, title) => {
+    if (!window.confirm(`確定要刪除文件「${title}」嗎？\n這將會移除所有版本與關聯紀錄，且無法復原。`)) {
+      return;
+    }
+    
+    try {
+      await deleteDocument(docId);
+      fetchData(); // Refresh list
+    } catch (e) {
+      console.error('Delete failed', e);
+      alert('刪除失敗，請檢查後端日誌。');
+    }
+  };
+
 
   return (
     <div className="animate-in fade-in duration-500 h-full flex flex-col">
@@ -190,6 +210,18 @@ export default function DocumentList() {
                             {doc.title}
                           </div>
                           <div className="text-xs text-slate-500 mt-1 font-mono">{doc.doc_number || '-'}</div>
+                          
+                          {/* MDF Links Display */}
+                          {doc.mdf_links && doc.mdf_links.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mt-2">
+                              {doc.mdf_links.map((link, idx) => (
+                                <span key={idx} className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-indigo-50 text-indigo-600 border border-indigo-100">
+                                  MDF: {link.project.project_no} (項次 {link.item_no})
+                                </span>
+                              ))}
+                            </div>
+                          )}
+
                         </div>
                       </div>
                     </td>
@@ -210,11 +242,19 @@ export default function DocumentList() {
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">
                       {format(new Date(doc.updated_at), 'yyyy-MM-dd HH:mm')}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm">
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm flex justify-end items-center h-full">
                       <button className="text-slate-400 hover:text-slate-600 p-2 rounded-lg hover:bg-slate-100 transition">
                         <MoreVertical className="w-5 h-5" />
                       </button>
+                      <button 
+                        onClick={() => handleDelete(doc.id, doc.title)}
+                        className="text-red-400 hover:text-red-600 p-2 rounded-lg hover:bg-red-50 transition ml-1"
+                        title="刪除文件"
+                      >
+                        <Trash2 className="w-5 h-5" />
+                      </button>
                     </td>
+
                   </tr>
                 ))}
               </tbody>

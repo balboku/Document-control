@@ -111,7 +111,13 @@ export const getAuditLog = async (id) => {
   return data;
 };
 
+export const deleteDocument = async (id) => {
+  const { data } = await api.delete(`/documents/${id}`);
+  return data;
+};
+
 export const getDocumentAuditLogs = async (docId) => {
+
     const res = await api.get(`/documents/${docId}/audit-logs`);
     return res.data;
 };
