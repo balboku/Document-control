@@ -25,6 +25,8 @@ async def lifespan(app: FastAPI):
     
     # Create database tables
     async with engine.begin() as conn:
+        from sqlalchemy import text
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         await conn.run_sync(Base.metadata.create_all)
     
     logger.info("✅ Database tables created")

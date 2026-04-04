@@ -1,6 +1,6 @@
 services:
   db:
-    image: ankane/pgvector:latest
+    image: pgvector/pgvector:pg16
     container_name: dms-postgres
     restart: unless-stopped
     environment:
@@ -10,13 +10,13 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - pgdata:/var/lib/postgresql/data
 
   backend:
     build: ./backend
     container_name: dms-backend
     environment:
-      - DATABASE_URL=postgresql+asyncpg://dms_user:dms_password_2026@db:5432/dms
+      - DATABASE_URL=postgresql+asyncpg://dms_user:dms_password_2026@dms-postgres:5432/dms
       - WATCHFILES_FORCE_POLLING=true
     ports:
       - "8000:8000"
@@ -41,4 +41,4 @@ services:
     restart: unless-stopped
 
 volumes:
-  postgres_data:
+  pgdata:
