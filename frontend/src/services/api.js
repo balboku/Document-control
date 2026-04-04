@@ -23,6 +23,11 @@ export const updateSettingsUser = async (id, userData) => {
   return data;
 };
 
+export const deleteSettingsUser = async (id) => {
+  const { data } = await api.delete(`/settings/users/${id}`);
+  return data;
+};
+
 export const getSettingsCategories = async (activeOnly = false) => {
   const { data } = await api.get(`/settings/categories?active_only=${activeOnly}`);
   return data;
@@ -35,6 +40,11 @@ export const createSettingsCategory = async (catData) => {
 
 export const updateSettingsCategory = async (id, catData) => {
   const { data } = await api.put(`/settings/categories/${id}`, catData);
+  return data;
+};
+
+export const deleteSettingsCategory = async (id) => {
+  const { data } = await api.delete(`/settings/categories/${id}`);
   return data;
 };
 

@@ -63,6 +63,19 @@ async def update_user(
     return user
 
 
+@router.delete("/users/{user_id}")
+async def delete_user(user_id: UUID, db: AsyncSession = Depends(get_db)):
+    """Delete a user."""
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    await db.delete(user)
+    await db.commit()
+    return {"status": "success", "message": f"User {user.name} deleted."}
+
+
 # ============ Categories ============
 
 @router.get("/categories", response_model=List[CategoryResponse])
@@ -116,6 +129,19 @@ async def update_category(
     await db.commit()
     await db.refresh(cat)
     return cat
+
+
+@router.delete("/categories/{category_id}")
+async def delete_category(category_id: UUID, db: AsyncSession = Depends(get_db)):
+    """Delete a category."""
+    result = await db.execute(select(Category).where(Category.id == category_id))
+    cat = result.scalar_one_or_none()
+    if not cat:
+        raise HTTPException(status_code=404, detail="Category not found")
+    
+    await db.delete(cat)
+    await db.commit()
+    return {"status": "success", "message": f"Category {cat.name} deleted."}
 
 
 # ============ Number Format ============
