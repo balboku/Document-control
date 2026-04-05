@@ -491,7 +491,7 @@ async def get_documents(
         total_result = await db.execute(count_query)
     total = total_result.scalar()
 
-    # 排序
+    # 排序：始終包含 id 以確保在 created_at 相同時分頁穩定
     sort_column = getattr(Document, sort_by, Document.created_at)
     if sort_order == "desc":
         query = query.order_by(desc(sort_column), desc(Document.id))
@@ -644,9 +644,18 @@ async def upload_new_version(
 
 async def get_document_stats(db: AsyncSession) -> dict:
     """Get overall document statistics for the dashboard."""
-    active_count = await db.scalar(select(func.count(Document.id)).where(Document.status == "active"))
-    draft_count = await db.scalar(select(func.count(Document.id)).where(Document.status == "draft"))
-    reserved_count = await db.scalar(select(func.count(Document.id)).where(Document.status == "reserved"))
+    active_count = await db.scalar(
+        select(func.count(Document.id))
+        .where(Document.status == "active", Document.deleted_at.is_(None))
+    )
+    draft_count = await db.scalar(
+        select(func.count(Document.id))
+        .where(Document.status == "draft", Document.deleted_at.is_(None))
+    )
+    reserved_count = await db.scalar(
+        select(func.count(Document.id))
+        .where(Document.status == "reserved", Document.deleted_at.is_(None))
+    )
     
     today = datetime.utcnow().date()
     # Count uploads today based on created_at or updated_at
@@ -655,13 +664,15 @@ async def get_document_stats(db: AsyncSession) -> dict:
         .where(func.date(DocumentVersion.uploaded_at) == today)
     )
     
-    # Get recent documents
+    # Get recent documents (eager load mdf_links to avoid MissingGreenlet error)
     recent_docs_result = await db.execute(
         select(Document)
         .options(
             joinedload(Document.author),
             joinedload(Document.category),
+            selectinload(Document.mdf_links).joinedload(MDFDocumentLink.project)
         )
+        .where(Document.deleted_at.is_(None))
         .order_by(desc(Document.updated_at), desc(Document.created_at))
         .limit(5)
     )

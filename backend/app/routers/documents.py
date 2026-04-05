@@ -612,31 +612,38 @@ async def batch_update_status(
             actor_name = user.name
 
     updated_ids = []
+    failed_ids = []
     for doc_id in data.document_ids:
-        result = await db.execute(select(Document).where(Document.id == doc_id))
-        document = result.scalar_one_or_none()
-        if not document or document.deleted_at is not None:
-            continue
+        try:
+            result = await db.execute(select(Document).where(Document.id == doc_id))
+            document = result.scalar_one_or_none()
+            if not document or document.deleted_at is not None:
+                failed_ids.append(str(doc_id))
+                continue
 
-        old_status = document.status
-        document.status = data.status
-        document.updated_at = datetime.utcnow()
+            old_status = document.status
+            document.status = data.status
+            document.updated_at = datetime.utcnow()
 
-        audit = AuditLog(
-            document_id=doc_id,
-            action="STATUS_CHANGE",
-            actor_id=actor_id,
-            actor_name=actor_name,
-            details={"from": old_status, "to": data.status, "batch": True},
-        )
-        db.add(audit)
-        updated_ids.append(str(doc_id))
+            audit = AuditLog(
+                document_id=doc_id,
+                action="STATUS_CHANGE",
+                actor_id=actor_id,
+                actor_name=actor_name,
+                details={"from": old_status, "to": data.status, "batch": True},
+            )
+            db.add(audit)
+            updated_ids.append(str(doc_id))
+        except Exception as e:
+            logger.error(f"Failed to update document {doc_id} in batch: {str(e)}")
+            failed_ids.append(str(doc_id))
 
     await db.commit()
     return {
-        "message": f"成功更新 {len(updated_ids)} 筆文件狀態為 {data.status}",
+        "message": f"批次執行完畢。成功：{len(updated_ids)}, 失敗：{len(failed_ids)}",
         "updated_count": len(updated_ids),
         "updated_ids": updated_ids,
+        "failed_ids": failed_ids,
     }
 
 

@@ -4,7 +4,7 @@ import StatusBadge from '../components/common/StatusBadge';
 import FileIcon from '../components/common/FileIcon';
 import LoadingSpinner from '../components/common/LoadingSpinner';
 import { format } from 'date-fns';
-import { FileText, Clock, AlertCircle } from 'lucide-react';
+import { FileText, Clock, AlertCircle, Plus } from 'lucide-react';
 
 export default function Dashboard() {
   const [stats, setStats] = useState(null);
@@ -86,9 +86,9 @@ export default function Dashboard() {
                   </div>
                   <div className="flex justify-between items-center text-xs text-slate-500">
                     <span className="font-mono bg-slate-100 px-1.5 py-0.5 rounded">{task.doc_number}</span>
-                    <div className="flex items-center">
+                    <div className="flex items-center text-slate-400">
                       <Clock className="w-3 h-3 mr-1" />
-                      {format(new Date(task.updated_at), 'MM-dd HH:mm')}
+                      {task.updated_at ? format(new Date(task.updated_at), 'MM-dd HH:mm') : 'N/A'}
                     </div>
                   </div>
                 </div>
@@ -126,7 +126,7 @@ export default function Dashboard() {
                   </div>
                   <div className="text-xs text-slate-400 shrink-0 ml-4 flex flex-col items-end">
                     <span>預約於</span>
-                    <span>{format(new Date(doc.reserved_at), 'MM-dd')}</span>
+                    <span>{doc.reserved_at ? format(new Date(doc.reserved_at), 'MM-dd') : 'N/A'}</span>
                   </div>
                 </div>
               ))}
