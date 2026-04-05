@@ -13,6 +13,8 @@ from app.schemas import (
     CategoryCreate, CategoryUpdate, CategoryResponse,
     NumberFormatUpdate, NumberFormatResponse,
 )
+from fastapi import BackgroundTasks
+from app.services.document_service import purge_old_audit_logs
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -222,3 +224,34 @@ async def update_number_format(
         example=example,
         updated_at=fmt.updated_at,
     )
+
+
+# ============ Audit Log Management ============
+
+@router.post("/audit/purge")
+async def trigger_audit_purge(
+    background_tasks: BackgroundTasks,
+    retain_days: int = 365,
+    dry_run: bool = False,
+    async_mode: bool = True,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    手動觸發稽核日誌清理作業。
+    
+    - retain_days: 保留天數（預設 365 天）
+    - dry_run: 僅統計不實際刪除
+    - async_mode: 是否在後台異步執行（預設 True）
+    """
+    if async_mode:
+        background_tasks.add_task(purge_old_audit_logs, db, retain_days, dry_run)
+        return {
+            "status": "accepted",
+            "message": f"Audit log purge task (retain_days={retain_days}) has been queued in background.",
+            "dry_run": dry_run
+        }
+    else:
+        # 即刻執行並等待結果（適合小規模手動測試）
+        result = await purge_old_audit_logs(db, retain_days, dry_run)
+        return result
+
