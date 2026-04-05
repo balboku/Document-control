@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { 
   getDocumentDetail, analyzeRelations, updateDocument, 
-  uploadNewVersion, getSettingsUsers, getSettingsCategories 
+  uploadNewVersion, getSettingsUsers, getSettingsCategories,
+  retryAiProcessing
 } from '../../services/api';
 import StatusBadge from '../common/StatusBadge';
 import LoadingSpinner from '../common/LoadingSpinner';
@@ -114,6 +115,17 @@ export default function DocumentDetailModal({ docId, onClose }) {
     }
   };
 
+  const handleRetryAI = async (versionId) => {
+    try {
+      await retryAiProcessing(docId, versionId);
+      // Refresh to show pending status
+      fetchDetail();
+    } catch (err) {
+      console.error(err);
+      alert("重試失敗: " + (err.response?.data?.detail || "未知錯誤"));
+    }
+  };
+
   const fetchHistory = async () => {
     if (history) return;
     setLoadingHistory(true);
@@ -168,6 +180,18 @@ export default function DocumentDetailModal({ docId, onClose }) {
                 <span className="text-xs font-bold text-primary-600 bg-primary-50 border border-primary-100 px-3 py-1 rounded-full uppercase tracking-wider">
                   {doc.current_version}
                 </span>
+              )}
+              {doc.ai_processing_status === 'pending' && (
+                <div className="flex items-center text-xs font-bold text-amber-600 bg-amber-50 px-3 py-1 rounded-full border border-amber-100">
+                  <Loader2 className="w-3 h-3 mr-1.5 animate-spin" />
+                  AI 處理中...
+                </div>
+              )}
+              {doc.ai_processing_status === 'failed' && (
+                <div className="flex items-center text-xs font-bold text-red-600 bg-red-50 px-3 py-1 rounded-full border border-red-100">
+                  <AlertCircle className="w-3 h-3 mr-1.5" />
+                  AI 解析失敗
+                </div>
               )}
             </div>
             {isEditing ? (
@@ -440,10 +464,33 @@ export default function DocumentDetailModal({ docId, onClose }) {
                             </div>
                             <div className="overflow-hidden">
                               <p className="text-xs font-bold text-slate-800 truncate">{v.version_number} - {v.file_name}</p>
-                              <p className="text-[10px] text-slate-400">{format(new Date(v.uploaded_at), 'MM/dd HH:mm')}</p>
+                              <div className="flex items-center mt-0.5 space-x-2">
+                                <p className="text-[10px] text-slate-400">{format(new Date(v.uploaded_at), 'MM/dd HH:mm')}</p>
+                                {v.ai_processing_status === 'pending' && (
+                                  <span className="flex items-center text-[9px] text-amber-500 font-bold uppercase">
+                                    <Loader2 className="w-2.5 h-2.5 mr-1 animate-spin" /> processing
+                                  </span>
+                                )}
+                                {v.ai_processing_status === 'failed' && (
+                                  <span className="flex items-center text-[9px] text-red-500 font-bold uppercase">
+                                    <AlertCircle className="w-2.5 h-2.5 mr-1" /> failed
+                                  </span>
+                                )}
+                              </div>
                             </div>
                           </div>
-                          {v.is_current && <span className="text-[8px] font-black tracking-tighter bg-primary-600 text-white px-2 py-0.5 rounded shadow-sm shrink-0">LATEST</span>}
+                          <div className="flex items-center space-x-2 shrink-0">
+                            {v.ai_processing_status === 'failed' && (
+                              <button 
+                                onClick={(e) => { e.stopPropagation(); handleRetryAI(v.id); }}
+                                className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors border border-red-100"
+                                title="重試 AI 解析"
+                              >
+                                <Sparkles className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                            {v.is_current && <span className="text-[8px] font-black tracking-tighter bg-primary-600 text-white px-2 py-0.5 rounded shadow-sm">LATEST</span>}
+                          </div>
                         </div>
                       ))
                     ) : (

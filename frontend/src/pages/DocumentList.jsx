@@ -10,7 +10,7 @@ import StatusBadge from '../components/common/StatusBadge';
 import FileIcon from '../components/common/FileIcon';
 import LoadingSpinner from '../components/common/LoadingSpinner';
 import { format } from 'date-fns';
-import { Filter, Search, Download, Plus, Layers, User, MoreVertical, FileText, Trash2, CheckSquare } from 'lucide-react';
+import { Filter, Search, Download, Plus, Layers, User, MoreVertical, FileText, Trash2, CheckSquare, Loader2, AlertCircle } from 'lucide-react';
 import { batchDownload, batchUpdateStatus } from '../services/api';
 
 
@@ -294,7 +294,15 @@ export default function DocumentList() {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <StatusBadge status={doc.status} className="mb-1" />
-                      <div className="text-xs text-slate-500 ">{doc.current_version || '無版本'}</div>
+                      <div className="flex items-center text-xs text-slate-500 mt-1">
+                        {doc.current_version || '無版本'}
+                        {doc.ai_processing_status === 'pending' && (
+                          <Loader2 className="w-3 h-3 ml-2 animate-spin text-amber-500" title="AI 處理中" />
+                        )}
+                        {doc.ai_processing_status === 'failed' && (
+                          <AlertCircle className="w-3 h-3 ml-2 text-red-500" title="AI 解析失敗" />
+                        )}
+                      </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center text-xs text-slate-600 mb-1">

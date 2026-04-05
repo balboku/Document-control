@@ -137,6 +137,7 @@ class DocumentVersionResponse(BaseModel):
     file_type: str
     file_size: int
     ai_metadata: Optional[dict]
+    ai_processing_status: Optional[str] = None
     is_current: bool
     uploaded_by: Optional[UUID]
     uploader_name: Optional[str] = None
@@ -150,6 +151,7 @@ class DocumentResponse(BaseModel):
     doc_number: str
     title: Optional[str]
     status: str
+    ai_processing_status: Optional[str] = None
     current_version: Optional[str]
     author_id: Optional[UUID]
     author_name: Optional[str] = None
@@ -175,6 +177,7 @@ class DocumentBriefResponse(BaseModel):
     doc_number: str
     title: Optional[str]
     status: str
+    ai_processing_status: Optional[str] = None
     current_version: Optional[str]
     author_name: Optional[str] = None
     category_name: Optional[str] = None

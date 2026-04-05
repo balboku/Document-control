@@ -63,6 +63,7 @@ class Document(Base):
     doc_number = Column(String(50), unique=True, nullable=False, index=True)
     title = Column(String(500), nullable=True)
     status = Column(String(20), default="draft")  # reserved, draft, active, archived
+    ai_processing_status = Column(String(20), default="completed")  # pending, completed, failed
     current_version = Column(String(20), nullable=True)
     author_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     category_id = Column(UUID(as_uuid=True), ForeignKey("categories.id"), nullable=True)
@@ -131,6 +132,7 @@ class DocumentVersion(Base):
     ai_metadata = Column(JSONB, nullable=True)
 
     ai_analysis_text = Column(Text, nullable=True)
+    ai_processing_status = Column(String(20), default="completed")  # pending, completed, failed
     is_current = Column(Boolean, default=True)
     uploaded_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     uploaded_at = Column(DateTime, default=datetime.utcnow)

@@ -5,7 +5,7 @@ import io
 import base64
 from typing import Optional, List
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query, BackgroundTasks
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy import select, update as sql_update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -91,11 +91,12 @@ async def extract_metadata_only(
 @router.post("/confirm", response_model=DocumentResponse)
 async def confirm_document(
     data: DocumentConfirm,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
     """Confirm metadata and finalize the document upload."""
     try:
-        document = await document_service.confirm_document(
+        document, doc_version = await document_service.confirm_document(
             db=db,
             file_id=data.file_id,
             title=data.title,
@@ -107,6 +108,15 @@ async def confirm_document(
             notes=data.notes,
             actor_id=data.actor_id,
             file_hash=data.file_hash,
+        )
+        
+        background_tasks.add_task(
+            document_service.process_doc_ai_background,
+            document.id,
+            doc_version.id,
+            doc_version.file_path,
+            doc_version.file_name,
+            document.title
         )
 
         return DocumentResponse(
@@ -377,6 +387,7 @@ async def update_document(
 @router.post("/{doc_id}/upload-version")
 async def upload_new_version(
     doc_id: UUID,
+    background_tasks: BackgroundTasks,
     version_number: str = Query(...),
     actor_id: Optional[UUID] = Query(None),
     file: UploadFile = File(...),
@@ -386,9 +397,19 @@ async def upload_new_version(
     file_bytes = await file.read()
     
     try:
-        version = await document_service.upload_new_version(
+        version, document = await document_service.upload_new_version(
             db, doc_id, file_bytes, file.filename, version_number, actor_id
         )
+        
+        background_tasks.add_task(
+            document_service.process_doc_ai_background,
+            document.id,
+            version.id,
+            version.file_path,
+            version.file_name,
+            document.title
+        )
+        
         return {"message": "Version uploaded successfully", "version_id": str(version.id)}
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -706,3 +727,50 @@ async def delete_document(
         "message": f"Document {document.doc_number} 已軟刪除，稽核記錄已保留。",
         "deleted_at": now.isoformat(),
     }
+
+
+@router.post("/{doc_id}/versions/{version_id}/retry-ai", response_model=DocumentVersionResponse)
+async def retry_ai_processing(
+    doc_id: UUID,
+    version_id: UUID,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+):
+    """Retry failed AI processing for a document version."""
+    try:
+        # First reset the status in the current transaction
+        version = await document_service.retry_ai_processing(db, doc_id, version_id)
+        
+        # Then dispatch the background task
+        # Notice we pass document.title, we need to fetch the document
+        result = await db.execute(select(Document).where(Document.id == doc_id))
+        document = result.scalar_one_or_none()
+        
+        background_tasks.add_task(
+            document_service.process_doc_ai_background,
+            doc_id,
+            version_id,
+            version.file_path,
+            version.file_name,
+            document.title if document else ""
+        )
+        
+        # Reload with uploader for response
+        result = await db.execute(select(DocumentVersion).options(selectinload(DocumentVersion.uploader)).where(DocumentVersion.id == version_id))
+        version = result.scalar_one_or_none()
+        
+        return DocumentVersionResponse(
+            id=version.id,
+            version_number=version.version_number,
+            file_name=version.file_name,
+            file_type=version.file_type,
+            file_size=version.file_size,
+            ai_metadata=version.ai_metadata,
+            ai_processing_status=version.ai_processing_status,
+            is_current=version.is_current,
+            uploaded_by=version.uploaded_by,
+            uploader_name=version.uploader.name if version.uploader else None,
+            uploaded_at=version.uploaded_at,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))

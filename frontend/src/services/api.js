@@ -138,6 +138,11 @@ export const deleteDocument = async (id) => {
 };
 
 // --- New Endpoints ---
+export const retryAiProcessing = async (docId, versionId) => {
+  const { data } = await api.post(`/documents/${docId}/versions/${versionId}/retry-ai`);
+  return data;
+};
+
 export const getStats = async () => {
     const res = await api.get('/documents/stats');
     return res.data;

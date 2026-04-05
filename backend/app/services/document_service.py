@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload, joinedload, defer as sa_defer
 from sqlalchemy.orm.exc import StaleDataError  # 樂觀鎖衝突時會拋出此異常
 
+from app.database import AsyncSessionLocal
 from app.models import Document, DocumentVersion, DocumentChunk, AuditLog, NumberFormat, User, Category, MDFDocumentLink
 
 from app.services.file_parser import extract_text
@@ -224,6 +225,89 @@ async def process_upload(
     }
 
 
+
+async def process_doc_ai_background(doc_id: uuid.UUID, version_id: uuid.UUID, file_path: str, filename: str, title: str):
+    """Background task to extract text, AI metadata, and embeddings."""
+    try:
+        from sqlalchemy import update as sql_update
+        async with AsyncSessionLocal() as db:
+            try:
+                # 1. Update status
+                await db.execute(sql_update(DocumentVersion).where(DocumentVersion.id == version_id).values(ai_processing_status="pending"))
+                await db.execute(sql_update(Document).where(Document.id == doc_id).values(ai_processing_status="pending"))
+                await db.commit()
+
+                with open(file_path, "rb") as f:
+                    file_bytes = f.read()
+
+                extracted_text = await _get_text_with_ocr(file_bytes, filename)
+
+                cat_result = await db.execute(select(Category).where(Category.is_active == True))
+                categories = [c.name for c in cat_result.scalars().all()]
+
+                ai_metadata = None
+                if extracted_text or title or filename:
+                    ai_metadata = await extract_metadata(extracted_text, title or filename, categories)
+
+                if extracted_text:
+                    chunks = chunk_text(extracted_text)
+                    if chunks:
+                        embeddings = await generate_embeddings(chunks)
+                        if embeddings:
+                            for idx, (chunk_content, embedding) in enumerate(zip(chunks, embeddings)):
+                                chunk = DocumentChunk(
+                                    version_id=version_id,
+                                    document_id=doc_id,
+                                    chunk_index=idx,
+                                    content=chunk_content,
+                                    embedding=embedding,
+                                )
+                                db.add(chunk)
+                
+                await db.execute(
+                    sql_update(DocumentVersion)
+                    .where(DocumentVersion.id == version_id)
+                    .values(
+                        extracted_text=extracted_text,
+                        ai_metadata=ai_metadata,
+                        ai_processing_status="completed",
+                        updated_at=datetime.now(timezone.utc).replace(tzinfo=None)
+                    )
+                )
+                await db.execute(
+                    sql_update(Document)
+                    .where(Document.id == doc_id)
+                    .values(ai_processing_status="completed")
+                )
+                await db.commit()
+                logger.info(f"Background AI processing completed for doc {doc_id}")
+
+            except Exception as e:
+                logger.error(f"Background AI processing failed for doc {doc_id}: {e}")
+                await db.rollback()
+                await db.execute(sql_update(DocumentVersion).where(DocumentVersion.id == version_id).values(ai_processing_status="failed"))
+                await db.execute(sql_update(Document).where(Document.id == doc_id).values(ai_processing_status="failed"))
+                await db.commit()
+    except Exception as outer_e:
+         logger.error(f"Fatal error in background task for doc {doc_id}: {outer_e}")
+
+
+async def retry_ai_processing(db: AsyncSession, doc_id: uuid.UUID, version_id: uuid.UUID) -> DocumentVersion:
+    result = await db.execute(select(DocumentVersion).where(DocumentVersion.id == version_id, DocumentVersion.document_id == doc_id))
+    version = result.scalar_one_or_none()
+    if not version:
+        raise ValueError("Document version not found")
+        
+    doc_result = await db.execute(select(Document).where(Document.id == doc_id))
+    doc = doc_result.scalar_one_or_none()
+    
+    version.ai_processing_status = "pending"
+    if doc:
+        doc.ai_processing_status = "pending"
+    
+    await db.commit()
+    return version
+
 async def confirm_document(
     db: AsyncSession,
     file_id: str,
@@ -236,7 +320,7 @@ async def confirm_document(
     notes: Optional[str],
     actor_id: Optional[uuid.UUID] = None,
     file_hash: Optional[str] = None,
-) -> Document:
+) -> Tuple[Document, DocumentVersion]:
     """Confirm and finalize a document upload."""
     file_path = os.path.join(settings.upload_dir, file_id)
     file_ext = os.path.splitext(file_id)[1].strip(".")
@@ -252,7 +336,8 @@ async def confirm_document(
     if not file_hash:
         file_hash = hashlib.sha256(file_bytes).hexdigest()
 
-    extracted_text = await _get_text_with_ocr(file_bytes, file_id)
+    extracted_text = None  # Processed in background
+    ai_metadata = None     # Processed in background
     file_size = os.path.getsize(file_path)
 
     # Check if binding to a reserved document
@@ -291,18 +376,6 @@ async def confirm_document(
         document.notes = notes
         document.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
 
-    # Get categories for AI prompt
-    cat_result = await db.execute(
-        select(Category).where(Category.is_active == True)
-    )
-    categories = [c.name for c in cat_result.scalars().all()]
-
-    # Get AI metadata
-    ai_metadata = None
-    if extracted_text or title:
-        # Use provided title (often filename) as AI hint
-        ai_metadata = await extract_metadata(extracted_text, title, categories)
-
     # Mark old versions as not current
     from sqlalchemy import update as sql_update
     await db.execute(
@@ -312,6 +385,7 @@ async def confirm_document(
     )
 
     # Create version record
+    document.ai_processing_status = "pending"
     doc_version = DocumentVersion(
         document_id=document.id,
         version_number=version,
@@ -320,36 +394,16 @@ async def confirm_document(
         file_type=file_ext,
         file_size=file_size,
         file_hash=file_hash,
-        extracted_text=extracted_text,
-        ai_metadata=ai_metadata,
+        extracted_text=None,
+        ai_metadata=None,
+        ai_processing_status="pending",
         is_current=True,
         uploaded_by=actor_id,
     )
     db.add(doc_version)
     await db.flush()
 
-    # Generate embeddings for chunks
-    if extracted_text:
-        chunks = chunk_text(extracted_text)
-        if chunks:
-            embeddings = await generate_embeddings(chunks)
-            if embeddings:
-                for idx, (chunk_content, embedding) in enumerate(zip(chunks, embeddings)):
-                    chunk = DocumentChunk(
-                        version_id=doc_version.id,
-                        document_id=document.id,
-                        chunk_index=idx,
-                        content=chunk_content,
-                        embedding=embedding,
-                    )
-                    db.add(chunk)
-                logger.info(f"Created {len(embeddings)} embeddings for document {document.doc_number}")
-            else:
-                logger.error(f"Embedding generation returned None for document {document.doc_number} - document will not be searchable")
-        else:
-            logger.warning(f"No text chunks generated for document {document.doc_number}")
-    else:
-        logger.warning(f"No extracted text for document {document.doc_number} - cannot generate embeddings")
+    # Chunking and embedding moved to background task
 
     # Create audit log
     actor_name = None
@@ -371,7 +425,7 @@ async def confirm_document(
     await db.commit()
     await db.refresh(document)
 
-    return document
+    return document, doc_version
 
 
 async def get_extracted_metadata(
@@ -624,7 +678,7 @@ async def upload_new_version(
     filename: str,
     version_number: str,
     actor_id: Optional[uuid.UUID] = None,
-) -> DocumentVersion:
+) -> Tuple[DocumentVersion, Document]:
     """Upload a new version of an existing document."""
     # Get document
     result = await db.execute(select(Document).where(Document.id == doc_id))
@@ -635,15 +689,6 @@ async def upload_new_version(
     # Save file
     file_path, stored_name = await save_uploaded_file(file_bytes, filename)
     file_ext = os.path.splitext(filename)[1].strip(".")
-    extracted_text = await _get_text_with_ocr(file_bytes, filename)
-    
-    # Get categories for AI
-    cat_result = await db.execute(select(Category).where(Category.is_active == True))
-    categories = [c.name for c in cat_result.scalars().all()]
-    
-    ai_metadata = None
-    if extracted_text or filename:
-        ai_metadata = await extract_metadata(extracted_text, filename, categories)
     
     # Mark old versions as not current
     from sqlalchemy import update as sql_update
@@ -667,8 +712,9 @@ async def upload_new_version(
         file_path=file_path,
         file_type=file_ext,
         file_size=len(file_bytes),
-        extracted_text=extracted_text,
-        ai_metadata=ai_metadata,
+        extracted_text=None,
+        ai_metadata=None,
+        ai_processing_status="pending",
         is_current=True,
         uploaded_by=actor_id,
     )
@@ -677,30 +723,10 @@ async def upload_new_version(
     
     # Update document
     document.current_version = version_number
+    document.ai_processing_status = "pending"
     document.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
     
-    # Generate new embeddings
-    if extracted_text:
-        chunks = chunk_text(extracted_text)
-        if chunks:
-            embeddings = await generate_embeddings(chunks)
-            if embeddings:
-                for idx, (chunk_content, embedding) in enumerate(zip(chunks, embeddings)):
-                    chunk = DocumentChunk(
-                        version_id=doc_version.id,
-                        document_id=doc_id,
-                        chunk_index=idx,
-                        content=chunk_content,
-                        embedding=embedding,
-                    )
-                    db.add(chunk)
-                logger.info(f"Created {len(embeddings)} embeddings for document version {version_number}")
-            else:
-                logger.error(f"Embedding generation returned None for document version {version_number} - document will not be searchable")
-        else:
-            logger.warning(f"No text chunks generated for document version {version_number}")
-    else:
-        logger.warning(f"No extracted text for document version {version_number} - cannot generate embeddings")
+    # Embedding generation moved to background task
     
     # Audit log
     actor_name = None
@@ -720,7 +746,7 @@ async def upload_new_version(
     db.add(audit)
     
     await db.commit()
-    return doc_version
+    return doc_version, document
 
 
 async def get_document_stats(db: AsyncSession) -> dict:
