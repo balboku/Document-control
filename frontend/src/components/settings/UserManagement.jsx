@@ -2,8 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { 
   getSettingsUsers, createSettingsUser, updateSettingsUser, deleteSettingsUser 
 } from '../../services/api';
-import { UserPlus, Save, X, Edit2, Trash2, CheckCircle, XCircle } from 'lucide-react';
+import { UserPlus, Save, X, Edit2, Trash2, CheckCircle, XCircle, UserCheck } from 'lucide-react';
 import LoadingSpinner from '../common/LoadingSpinner';
+import { useUser } from '../../context/UserContext';
 
 export default function UserManagement() {
   const [users, setUsers] = useState([]);
@@ -14,6 +15,16 @@ export default function UserManagement() {
   
   const [formData, setFormData] = useState({ name: '', department: '', is_active: true, role: 'editor' });
   const [saving, setSaving] = useState(false);
+  
+  const { currentUser, setCurrentUser } = useUser();
+
+  const handleSetCurrentUser = (user) => {
+    if (!user.is_active) {
+       alert('無法切換至已停用的使用者。');
+       return;
+    }
+    setCurrentUser({ id: user.id, name: user.name, department: user.department, role: user.role });
+  };
 
   useEffect(() => {
     fetchUsers();
@@ -193,9 +204,9 @@ export default function UserManagement() {
           </thead>
           <tbody className="bg-white divide-y divide-slate-100">
             {users.length === 0 ? (
-              <tr><td colSpan="4" className="px-6 py-12 text-center text-slate-400 font-medium">尚無使用者紀錄</td></tr>
+              <tr><td colSpan="5" className="px-6 py-12 text-center text-slate-400 font-medium">尚無使用者紀錄</td></tr>
             ) : users.map(user => (
-              <tr key={user.id} className="hover:bg-primary-50/20 transition-colors group">
+              <tr key={user.id} className={`transition-colors group ${currentUser?.id === user.id ? 'bg-primary-50/60 hover:bg-primary-100/50' : 'hover:bg-slate-50'}`}>
                 <td className="px-6 py-5 whitespace-nowrap">
                    <div className="text-sm font-bold text-slate-900">{user.name}</div>
                 </td>
@@ -213,6 +224,13 @@ export default function UserManagement() {
                 </td>
                 <td className="px-6 py-5 whitespace-nowrap text-right">
                   <div className="flex items-center justify-end space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button 
+                      onClick={() => handleSetCurrentUser(user)} 
+                      className={`p-2 transition-all rounded-lg font-bold ${currentUser?.id === user.id ? 'text-primary-600 bg-primary-100 opacity-100' : 'text-primary-400 hover:text-primary-600 hover:bg-primary-50'}`}
+                      title={currentUser?.id === user.id ? '目前操作者' : '設為目前操作者 (Login)'}
+                    >
+                       <UserCheck className="w-4 h-4" />
+                    </button>
                     <button 
                       onClick={() => handleOpenEdit(user)} 
                       className="p-2 text-slate-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-all"

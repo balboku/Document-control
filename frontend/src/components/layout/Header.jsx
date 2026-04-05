@@ -1,7 +1,9 @@
 import React from 'react';
 import { Bell, Search, UserCircle } from 'lucide-react';
+import { useUser } from '../../context/UserContext';
 
 export default function Header() {
+  const { currentUser } = useUser();
   return (
     <header className="bg-white border-b border-slate-200 sticky top-0 z-30">
       <div className="flex items-center justify-between px-8 py-4">
@@ -28,10 +30,19 @@ export default function Header() {
           </button>
           
           <div className="flex items-center border-l border-slate-200 pl-6 cursor-pointer">
-            <UserCircle className="h-8 w-8 text-slate-300" />
+            <UserCircle className={`h-8 w-8 ${currentUser ? 'text-primary-600' : 'text-slate-300'}`} />
             <div className="ml-3">
-              <p className="text-sm font-medium text-slate-700 group-hover:text-slate-900">目前操作者未指定</p>
-              <p className="text-xs text-slate-500">請至設定區設定</p>
+              {currentUser ? (
+                 <>
+                   <p className="text-sm font-bold text-slate-800">{currentUser.name}</p>
+                   <p className="text-xs text-slate-500 font-medium">{currentUser.department || '無所屬部門'}</p>
+                 </>
+              ) : (
+                 <>
+                   <p className="text-sm font-medium text-slate-700">目前操作者未指定</p>
+                   <p className="text-xs text-slate-500">請至設定區設定</p>
+                 </>
+              )}
             </div>
           </div>
         </div>
