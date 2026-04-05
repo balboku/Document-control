@@ -32,7 +32,7 @@ async def precise_search(
     """Precise search with filters."""
     from app.services.document_service import get_documents
     
-    documents, total = await get_documents(
+    documents, total, _ = await get_documents(
         db, page, page_size, status, category_id, author_id,
         q, date_from, date_to,
     )

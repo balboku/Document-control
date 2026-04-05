@@ -2,9 +2,9 @@ import uuid
 from datetime import datetime
 from sqlalchemy import (
     Column, String, Text, Boolean, Integer, BigInteger,
-    DateTime, ForeignKey, JSON, Index
+    DateTime, ForeignKey, Index, Computed
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB, TSVECTOR
 from sqlalchemy.orm import relationship
 from pgvector.sqlalchemy import Vector
 from app.database import Base
@@ -60,11 +60,28 @@ class Document(Base):
     current_version = Column(String(20), nullable=True)
     author_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     category_id = Column(UUID(as_uuid=True), ForeignKey("categories.id"), nullable=True)
-    keywords = Column(JSON, nullable=True)  # List of keywords
+
+    # [優化2] JSON → JSONB，支援 GIN 索引與更快的 JSON 操作
+    keywords = Column(JSONB, nullable=True)  # List of keywords
+
     notes = Column(Text, nullable=True)
     reserved_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # [優化4] 軟刪除欄位：記錄刪除時間，NULL 表示未刪除
+    deleted_at = Column(DateTime(timezone=True), nullable=True)
+
+    # [優化3] 全文檢索：由 PostgreSQL 自動計算，基於 title + doc_number 產生 tsvector
+    # 注意：此為 GENERATED ALWAYS AS ... STORED 計算欄位，需配合遷移 SQL 建立
+    search_vector = Column(
+        TSVECTOR,
+        Computed(
+            "to_tsvector('simple', coalesce(title, '') || ' ' || coalesce(doc_number, ''))",
+            persisted=True,
+        ),
+        nullable=True,
+    )
 
     # Relationships
     author = relationship("User", back_populates="authored_documents", foreign_keys=[author_id])
@@ -73,11 +90,15 @@ class Document(Base):
     audit_logs = relationship("AuditLog", back_populates="document", order_by="AuditLog.created_at.desc()", cascade="all, delete-orphan")
     mdf_links = relationship("MDFDocumentLink", back_populates="document", cascade="all, delete-orphan")
 
-
-
     __table_args__ = (
         Index("idx_documents_status", "status"),
         Index("idx_documents_created_at", "created_at"),
+        # [優化4] 軟刪除查詢索引：過濾未刪除資料時使用
+        Index("idx_documents_deleted_at", "deleted_at"),
+        # [優化2] GIN 索引：加速 keywords 的 JSON 包含查詢
+        Index("idx_documents_keywords_gin", "keywords", postgresql_using="gin"),
+        # [優化3] GIN 索引：加速全文檢索
+        Index("idx_documents_search_vector_gin", "search_vector", postgresql_using="gin"),
     )
 
 
@@ -93,11 +114,17 @@ class DocumentVersion(Base):
     file_size = Column(BigInteger, nullable=False)
     file_hash = Column(String(64), nullable=True)  # SHA-256 hash for duplicate detection
     extracted_text = Column(Text, nullable=True)
-    ai_metadata = Column(JSON, nullable=True)
+
+    # [優化2] JSON → JSONB，支援 GIN 索引與更快的 JSON 操作
+    ai_metadata = Column(JSONB, nullable=True)
+
     ai_analysis_text = Column(Text, nullable=True)
     is_current = Column(Boolean, default=True)
     uploaded_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     uploaded_at = Column(DateTime, default=datetime.utcnow)
+
+    # [優化4] 軟刪除欄位
+    deleted_at = Column(DateTime(timezone=True), nullable=True)
 
     # Relationships
     document = relationship("Document", back_populates="versions")
@@ -107,6 +134,8 @@ class DocumentVersion(Base):
     __table_args__ = (
         Index("idx_versions_document_id", "document_id"),
         Index("idx_versions_file_hash", "file_hash"),
+        # [優化2] GIN 索引：加速 ai_metadata 的 JSON 包含查詢
+        Index("idx_versions_ai_metadata_gin", "ai_metadata", postgresql_using="gin"),
     )
 
 
@@ -126,6 +155,15 @@ class DocumentChunk(Base):
     __table_args__ = (
         Index("idx_chunks_document_id", "document_id"),
         Index("idx_chunks_version_id", "version_id"),
+        # [優化1] HNSW 向量索引：大幅加速近似最近鄰向量搜尋（cosine 距離）
+        # m=16: 每個節點最多連接數；ef_construction=64: 建立索引時的搜尋範圍
+        Index(
+            "idx_chunks_embedding_hnsw",
+            "embedding",
+            postgresql_using="hnsw",
+            postgresql_with={"m": 16, "ef_construction": 64},
+            postgresql_ops={"embedding": "vector_cosine_ops"},
+        ),
     )
 
 
@@ -137,7 +175,10 @@ class AuditLog(Base):
     action = Column(String(50), nullable=False)  # CREATE, UPLOAD, UPDATE, DOWNLOAD, RESERVE, ARCHIVE
     actor_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     actor_name = Column(String(100), nullable=True)
-    details = Column(JSON, nullable=True)
+
+    # [優化2] JSON → JSONB，支援 GIN 索引與更快的 JSON 操作
+    details = Column(JSONB, nullable=True)
+
     created_at = Column(DateTime, default=datetime.utcnow)
 
     # Relationships
@@ -147,6 +188,8 @@ class AuditLog(Base):
     __table_args__ = (
         Index("idx_audit_document_id", "document_id"),
         Index("idx_audit_created_at", "created_at"),
+        # [優化2] GIN 索引：加速 details 的 JSON 包含查詢
+        Index("idx_audit_details_gin", "details", postgresql_using="gin"),
     )
 
 
@@ -181,4 +224,3 @@ class MDFDocumentLink(Base):
         Index("idx_mdf_links_project_id", "mdf_project_id"),
         Index("idx_mdf_links_document_id", "document_id"),
     )
-

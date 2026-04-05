@@ -183,6 +183,8 @@ class DocumentListResponse(BaseModel):
     page: int
     page_size: int
     total_pages: int
+    # [優化5] 游標分頁：當使用 cursor 模式時回傳下一頁游標，None 表示已無更多資料
+    next_cursor: Optional[str] = None
 
 
 # ============ Reserve Schemas ============

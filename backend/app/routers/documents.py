@@ -2,6 +2,7 @@
 import os
 import zipfile
 import io
+import base64
 from typing import Optional, List
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
@@ -9,7 +10,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy import select, update as sql_update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.database import get_db
 from app.models import Document, DocumentVersion, AuditLog, User
@@ -210,16 +211,27 @@ async def get_documents(
     date_to: Optional[str] = None,
     sort_by: str = "created_at",
     sort_order: str = "desc",
+    # [優化5] 游標分頁：傳入 next_cursor 以啟用游標模式
+    cursor: Optional[str] = Query(None, description="base64 游標，由上一页回傳的 next_cursor 提供"),
     db: AsyncSession = Depends(get_db),
 ):
-    """Get document list with filtering and pagination."""
-    documents, total = await document_service.get_documents(
+    """Get document list with filtering, pagination, and optional cursor-based pagination."""
+    # 解析游標
+    last_id = None
+    if cursor:
+        try:
+            last_id = UUID(base64.urlsafe_b64decode(cursor).decode())
+        except Exception:
+            raise HTTPException(status_code=400, detail="無效的分頁游標")
+
+    documents, total, next_cursor = await document_service.get_documents(
         db, page, page_size, status, category_id, author_id,
         search, date_from, date_to, sort_by, sort_order,
+        last_id=last_id,
     )
-    
+
     total_pages = (total + page_size - 1) // page_size
-    
+
     items = []
     for doc in documents:
         items.append(DocumentResponse(
@@ -240,13 +252,13 @@ async def get_documents(
             mdf_links=doc.mdf_links,
         ))
 
-    
     return DocumentListResponse(
         items=items,
         total=total,
         page=page,
         page_size=page_size,
         total_pages=total_pages,
+        next_cursor=next_cursor,
     )
 
 
@@ -579,41 +591,59 @@ async def reindex_all_documents_endpoint(
     result = await reindex_all_documents(db)
     return result
 @router.delete("/{doc_id}")
-async def delete_document(doc_id: UUID, db: AsyncSession = Depends(get_db)):
+async def delete_document(
+    doc_id: UUID,
+    actor_id: Optional[UUID] = Query(None, description="執行刪除的使用者 ID，用於稽核記錄"),
+    db: AsyncSession = Depends(get_db),
+):
     """
-    Delete a document, its physical files, and all associated records 
-    (versions, audit logs, mdf links).
+    [優化4] 軟刪除文件：將 deleted_at 設為當前時間，資料庫記錄保留以符合稽核規範。
+    實體檔案會被保留，如需實體清除可幓理。
     """
-    # Get document with all its versions to find file paths
     result = await db.execute(
         select(Document)
         .options(selectinload(Document.versions))
         .where(Document.id == doc_id)
     )
     document = result.unique().scalar_one_or_none()
-    
+
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
-    
-    # Track files removed for logging
-    removed_files = []
-    
-    # 1. Delete physical files from all versions
+
+    if document.deleted_at is not None:
+        raise HTTPException(status_code=409, detail="文件已在先前刪除")
+
+    now = datetime.now(timezone.utc)
+
+    # 軟刪除文件本體
+    document.deleted_at = now
+
+    # 同步軟刪除所有版本
     for version in document.versions:
-        if version.file_path and os.path.exists(version.file_path):
-            try:
-                os.remove(version.file_path)
-                removed_files.append(version.file_path)
-            except Exception as e:
-                # Log error but continue with DB deletion
-                print(f"Error removing physical file {version.file_path}: {e}")
-    
-    # 2. Delete document record (Cascase will handle versions, audit_logs, mdf_links)
-    await db.delete(document)
+        if version.deleted_at is None:
+            version.deleted_at = now
+
+    # 稽核記錄
+    actor_name = None
+    if actor_id:
+        user_result = await db.execute(select(User).where(User.id == actor_id))
+        user = user_result.scalar_one_or_none()
+        if user:
+            actor_name = user.name
+
+    audit = AuditLog(
+        document_id=doc_id,
+        action="DELETE",
+        actor_id=actor_id,
+        actor_name=actor_name,
+        details={"doc_number": document.doc_number, "soft_delete": True},
+    )
+    db.add(audit)
+
     await db.commit()
-    
+
     return {
         "status": "success",
-        "message": f"Document {document.doc_number} and {len(removed_files)} physical files deleted.",
-        "removed_files_count": len(removed_files)
+        "message": f"Document {document.doc_number} 已軟刪除，稽核記錄已保留。",
+        "deleted_at": now.isoformat(),
     }

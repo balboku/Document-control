@@ -1,13 +1,14 @@
 """Document business logic service."""
 import os
 import uuid
+import base64
 import hashlib
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List, Tuple
-from sqlalchemy import select, func, desc, and_, or_
+from sqlalchemy import select, func, desc, and_, or_, text
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload, joinedload
+from sqlalchemy.orm import selectinload, joinedload, defer as sa_defer
 
 from app.models import Document, DocumentVersion, DocumentChunk, AuditLog, NumberFormat, User, Category, MDFDocumentLink
 
@@ -412,58 +413,112 @@ async def get_documents(
     date_to: Optional[str] = None,
     sort_by: str = "created_at",
     sort_order: str = "desc",
-) -> Tuple[List[Document], int]:
-    """Get documents with filtering and pagination."""
+    # [優化5] 游標分頁：傳入上一頁最後一筆的 doc UUID
+    last_id: Optional[uuid.UUID] = None,
+) -> Tuple[List, int, Optional[str]]:
+    """
+    取得文件列表，支援過濾、分頁、游標分頁。
+
+    游標分頁使用指南：
+    - 傳入 last_id （上一頁回傳的 next_cursor 解析後）以啟用游標模式
+    - 游標模式下不需傳 page，產生的 next_cursor 將被回傳
+    """
+    # [優化6] 滴遲載入：列表查詢不需要大文本欄位，減少 I/O 與記憶體使用
     query = select(Document).options(
         joinedload(Document.author),
         joinedload(Document.category),
         selectinload(Document.mdf_links).joinedload(MDFDocumentLink.project),
+        # 延遲載入 DocumentVersion 中的大儲歘量 Text 欄位
+        selectinload(Document.versions).options(
+            sa_defer(DocumentVersion.extracted_text),
+            sa_defer(DocumentVersion.ai_analysis_text),
+        ),
     )
 
     count_query = select(func.count(Document.id))
-    
-    # Apply filters
-    filters = []
+
+    # [優化4] 預設過濾軟刪除資料（deleted_at IS NULL 表示未刪除）
+    filters = [Document.deleted_at.is_(None)]
+
     if status:
         filters.append(Document.status == status)
     if category_id:
         filters.append(Document.category_id == category_id)
     if author_id:
         filters.append(Document.author_id == author_id)
+
     if search:
-        filters.append(
-            or_(
-                Document.title.ilike(f"%{search}%"),
-                Document.doc_number.ilike(f"%{search}%"),
+        # [優化3] 全文檢索：優先使用 tsvector @@ tsquery
+        # plainto_tsquery 自動處理空白字元，安全且無需手動語法
+        try:
+            filters.append(
+                Document.search_vector.op("@@")(
+                    func.plainto_tsquery("simple", search)
+                )
             )
-        )
+        except Exception:
+            # Fallback：若 search_vector 欄位尚未建立（遷移期間），回退至 ILIKE
+            filters.append(
+                or_(
+                    Document.title.ilike(f"%{search}%"),
+                    Document.doc_number.ilike(f"%{search}%"),
+                )
+            )
+
     if date_from:
         filters.append(Document.created_at >= datetime.fromisoformat(date_from))
     if date_to:
         filters.append(Document.created_at <= datetime.fromisoformat(date_to + "T23:59:59"))
-    
+
+    # [優化5] 游標分頁：透過 WHERE id < :last_id 越過已載入的資料
+    cursor_mode = last_id is not None
+    if cursor_mode:
+        # UUID 比較基於 數據庫的字典順序；過濾呈現於目待游標之後的資料
+        # 請注意：created_at 排序 + id 游標才能保證穩定
+        filters.append(Document.id < last_id)
+
     if filters:
         query = query.where(and_(*filters))
-        count_query = count_query.where(and_(*filters))
-    
-    # Get total count
-    total_result = await db.execute(count_query)
+        count_query = count_query.where(and_(*filters[:-1] if cursor_mode else filters))
+
+    # 取得總數（游標模式不含 cursor 條件於 count 中）
+    if cursor_mode:
+        # 游標模式下，總數查詢不包含 cursor 條件
+        base_filters = [f for f in filters if not (hasattr(f, 'left') and hasattr(f.left, 'key') and f.left.key == 'id')]
+        count_q = select(func.count(Document.id)).where(and_(*base_filters)) if base_filters else select(func.count(Document.id))
+        total_result = await db.execute(count_q)
+    else:
+        total_result = await db.execute(count_query)
     total = total_result.scalar()
-    
-    # Apply sorting
+
+    # 排序
     sort_column = getattr(Document, sort_by, Document.created_at)
     if sort_order == "desc":
-        query = query.order_by(desc(sort_column))
+        query = query.order_by(desc(sort_column), desc(Document.id))
     else:
-        query = query.order_by(sort_column)
-    
-    # Apply pagination
-    query = query.offset((page - 1) * page_size).limit(page_size)
-    
+        query = query.order_by(sort_column, Document.id)
+
+    # 分頁
+    if cursor_mode:
+        # 游標模式不使用 offset
+        query = query.limit(page_size + 1)  # 多取 1 筆以判斷是否有下一頁
+    else:
+        # 傳統 offset 分頁（向下相容）
+        query = query.offset((page - 1) * page_size).limit(page_size)
+
     result = await db.execute(query)
-    documents = result.unique().scalars().all()
-    
-    return documents, total
+    documents = list(result.unique().scalars().all())
+
+    # [優化5] 產生下一頁游標
+    next_cursor = None
+    if cursor_mode and len(documents) > page_size:
+        # 移除多取的那筆，將最後一筆的 ID 編碼為游標
+        documents = documents[:page_size]
+        last_doc = documents[-1]
+        # base64 編碼 UUID，方便前端傳遞
+        next_cursor = base64.urlsafe_b64encode(str(last_doc.id).encode()).decode()
+
+    return documents, total, next_cursor
 
 
 async def get_document_detail(db: AsyncSession, doc_id: uuid.UUID) -> Optional[Document]:
