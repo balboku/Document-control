@@ -158,10 +158,14 @@ class DocumentResponse(BaseModel):
     reserved_at: Optional[datetime]
     created_at: datetime
     updated_at: Optional[datetime]
-    mdf_links: List["MDFLinkInfo"] = Field(default_factory=list)
 
     class Config:
         from_attributes = True
+
+
+class DocumentWithMdfResponse(DocumentResponse):
+    """Extended document response containing project links."""
+    mdf_links: List["MDFLinkInfo"] = Field(default_factory=list)
 
 
 class DocumentBriefResponse(BaseModel):
@@ -183,7 +187,7 @@ class DocumentDetailResponse(DocumentResponse):
     versions: List[DocumentVersionResponse] = []
 
 class DocumentListResponse(BaseModel):
-    items: List[DocumentResponse]
+    items: List[DocumentWithMdfResponse]
     total: int
     page: int
     page_size: int
@@ -254,17 +258,6 @@ class TimelineEntryResponse(BaseModel):
     type: str  # 'version' or 'audit'
     timestamp: str
     data: dict
-
-
-class RelatedDocumentResponse(BaseModel):
-    """Response for semantically related documents."""
-    document_id: UUID
-    doc_number: str
-    title: Optional[str]
-    similarity_score: float
-    status: str
-    category_name: Optional[str] = None
-    author_name: Optional[str] = None
 
 
 class RelatedDocumentResponse(BaseModel):

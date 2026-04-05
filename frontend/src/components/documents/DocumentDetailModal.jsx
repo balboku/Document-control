@@ -118,8 +118,8 @@ export default function DocumentDetailModal({ docId, onClose }) {
     if (history) return;
     setLoadingHistory(true);
     try {
-      const { getAuditLog } = await import('../../services/api');
-      const logs = await getAuditLog(docId);
+      const { getDocumentAuditLogs } = await import('../../services/api');
+      const logs = await getDocumentAuditLogs(docId);
       setHistory(logs);
     } catch (error) {
       console.error(error);

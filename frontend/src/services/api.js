@@ -126,20 +126,14 @@ export const uploadNewVersion = async (id, versionNumber, actorId, file) => {
   return data;
 };
 
-export const getAuditLog = async (id) => {
-  const { data } = await api.get(`/documents/${id}/audit-log`);
+export const getDocumentAuditLogs = async (docId) => {
+  const { data } = await api.get(`/documents/${docId}/audit-log`);
   return data;
 };
 
 export const deleteDocument = async (id) => {
   const { data } = await api.delete(`/documents/${id}`);
   return data;
-};
-
-export const getDocumentAuditLogs = async (docId) => {
-
-    const res = await api.get(`/documents/${docId}/audit-logs`);
-    return res.data;
 };
 
 // --- New Endpoints ---

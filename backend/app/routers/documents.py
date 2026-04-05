@@ -165,8 +165,8 @@ async def create_document_card(
         category_id=data.category_id,
         keywords=data.keywords,
         notes=data.notes,
-        created_at=datetime.utcnow(),
-        updated_at=datetime.utcnow(),
+        created_at=datetime.now(timezone.utc).replace(tzinfo=None),
+        updated_at=datetime.now(timezone.utc).replace(tzinfo=None),
     )
     
     db.add(document)
@@ -351,7 +351,7 @@ async def update_document(
     update_data = data.model_dump(exclude_unset=True)
     for key, value in update_data.items():
         setattr(document, key, value)
-    document.updated_at = datetime.utcnow()
+    document.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
     
     await db.commit()
     await db.refresh(document)
@@ -412,7 +412,7 @@ async def update_status(
     
     old_status = document.status
     document.status = status
-    document.updated_at = datetime.utcnow()
+    document.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
     
     # Get actor name
     actor_name = None
@@ -623,7 +623,7 @@ async def batch_update_status(
 
             old_status = document.status
             document.status = data.status
-            document.updated_at = datetime.utcnow()
+            document.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
 
             audit = AuditLog(
                 document_id=doc_id,

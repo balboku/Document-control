@@ -243,7 +243,7 @@ async def confirm_document(
         document.category_id = category_id
         document.keywords = keywords
         document.notes = notes
-        document.updated_at = datetime.utcnow()
+        document.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
 
     # Get categories for AI prompt
     cat_result = await db.execute(
@@ -258,11 +258,6 @@ async def confirm_document(
         ai_metadata = await extract_metadata(extracted_text, title, categories)
 
     # Mark old versions as not current
-    await db.execute(
-        select(DocumentVersion)
-        .where(DocumentVersion.document_id == document.id)
-    )
-
     from sqlalchemy import update as sql_update
     await db.execute(
         sql_update(DocumentVersion)
@@ -373,7 +368,7 @@ async def reserve_document_number(
         doc_number=doc_number,
         status="reserved",
         notes=notes,
-        reserved_at=datetime.utcnow(),
+        reserved_at=datetime.now(timezone.utc).replace(tzinfo=None),
     )
     db.add(document)
     await db.flush()
@@ -531,7 +526,7 @@ async def get_document_detail(db: AsyncSession, doc_id: uuid.UUID) -> Optional[D
             selectinload(Document.versions).joinedload(DocumentVersion.uploader),
             selectinload(Document.audit_logs).joinedload(AuditLog.actor),
         )
-        .where(Document.id == doc_id)
+        .where(Document.id == doc_id, Document.deleted_at.is_(None))
     )
     return result.unique().scalar_one_or_none()
 
@@ -596,7 +591,7 @@ async def upload_new_version(
     
     # Update document
     document.current_version = version_number
-    document.updated_at = datetime.utcnow()
+    document.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
     
     # Generate new embeddings
     if extracted_text:
@@ -657,7 +652,7 @@ async def get_document_stats(db: AsyncSession) -> dict:
         .where(Document.status == "reserved", Document.deleted_at.is_(None))
     )
     
-    today = datetime.utcnow().date()
+    today = datetime.now(timezone.utc).replace(tzinfo=None).date()
     # Count uploads today based on created_at or updated_at
     today_upload_count = await db.scalar(
         select(func.count(DocumentVersion.id))

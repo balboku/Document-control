@@ -1,11 +1,11 @@
 
 import logging
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Any, Optional
 from sqlalchemy import select, delete, func, text
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 
 from app.models import (
     Document, DocumentVersion, DocumentChunk, 
@@ -24,7 +24,7 @@ async def get_compliance_insights(db: AsyncSession, force_refresh: bool = False)
     """
     if not force_refresh:
         # Check cache (active insights created within last 24h)
-        cache_threshold = datetime.utcnow() - timedelta(hours=24)
+        cache_threshold = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=24)
         stmt = select(ComplianceInsight).where(
             ComplianceInsight.is_active == True,
             ComplianceInsight.created_at >= cache_threshold
@@ -97,52 +97,56 @@ async def run_compliance_analysis(db: AsyncSession) -> List[Dict[str, Any]]:
             })
 
     # 2. Semantic Compliance Matching (Vector-based)
-    # Get latest active documents
+    # Get latest active documents (Increased scan size for better context)
     doc_stmt = select(Document).where(Document.status == "active").order_by(Document.updated_at.desc()).limit(10)
     doc_result = await db.execute(doc_stmt)
     active_docs = doc_result.scalars().all()
     
     if active_docs:
-        # Pick the most recent one to analyze for context
-        main_doc = active_docs[0]
+        # Analyze multiple recent documents for a more comprehensive insight
+        # We take up to 3 most recent documents that have chunks
+        docs_to_analyze = []
+        for doc in active_docs:
+            chunk_stmt = select(DocumentChunk).where(DocumentChunk.document_id == doc.id).limit(1)
+            chunk_result = await db.execute(chunk_stmt)
+            chunk = chunk_result.scalar_one_or_none()
+            if chunk and chunk.embedding:
+                docs_to_analyze.append((doc, chunk))
+            if len(docs_to_analyze) >= 3:
+                break
         
-        # Get content of this document
-        chunk_stmt = select(DocumentChunk).where(DocumentChunk.document_id == main_doc.id).limit(1)
-        chunk_result = await db.execute(chunk_stmt)
-        chunk = chunk_result.scalar_one_or_none()
-        
-        if chunk is not None and chunk.embedding is not None:
+        for main_doc, chunk in docs_to_analyze:
             # Find relevant ISO 13485 clauses via vector similarity
-            # We use <=> (cosine distance) for pgvector
             sql = text("""
                 SELECT clause_no, title, requirement_text,
                        1 - (embedding <=> CAST(:emb AS vector)) as similarity
                 FROM regulatory_requirements
                 ORDER BY embedding <=> CAST(:emb AS vector)
-                LIMIT 2
+                LIMIT 1
             """)
             
-            # Convert embedding to string for raw SQL if needed, or pass as list
             emb_str = "[" + ",".join(str(x) for x in chunk.embedding) + "]"
             sim_result = await db.execute(sql, {"emb": emb_str})
-            clauses = sim_result.fetchall()
+            clause = sim_result.fetchone()
             
-            for clause in clauses:
-                if clause.similarity > 0.6:  # Threshold for relevance
-                    # Use AI to polish the advice
-                    advice = await generate_ai_compliance_advice(
-                        main_doc.title, 
-                        clause.clause_no, 
-                        clause.title, 
-                        clause.requirement_text
-                    )
-                    
-                    insights.append({
-                        "type": "RELEVANT_CLAUSE",
-                        "title": f"法規關聯提示：{clause.clause_no}",
-                        "content": advice,
-                        "severity": "info"
-                    })
+            if clause and clause.similarity > 0.6:
+                # Check if we already have an insight for this clause to avoid duplicates
+                if any(ins["type"] == "RELEVANT_CLAUSE" and clause.clause_no in ins["title"] for ins in insights):
+                    continue
+
+                advice = await generate_ai_compliance_advice(
+                    main_doc.title, 
+                    clause.clause_no, 
+                    clause.title, 
+                    clause.requirement_text
+                )
+                
+                insights.append({
+                    "type": "RELEVANT_CLAUSE",
+                    "title": f"針對「{main_doc.title}」的法規建議：{clause.clause_no}",
+                    "content": advice,
+                    "severity": "info"
+                })
 
     # Default if nothing found
     if not insights:
@@ -182,6 +186,3 @@ async def generate_ai_compliance_advice(doc_title: str, clause_no: str, clause_t
         logger.error(f"Failed to generate AI advice: {e}")
     
     return f"建議依照 ISO 13485 {clause_no} ({clause_title}) 之要求，確保相關記錄已完整存檔並經過核准。"
-
-# Helper for selectinload in the service (since it's not imported by default)
-from sqlalchemy.orm import selectinload

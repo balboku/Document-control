@@ -10,7 +10,7 @@ from app.database import get_db
 from app.models import Document, DocumentChunk
 from app.schemas import (
     SemanticSearchRequest, SemanticSearchResponse, SemanticSearchResult,
-    DocumentResponse, DocumentListResponse,
+    DocumentResponse, DocumentListResponse, DocumentWithMdfResponse,
 )
 from app.services.embedding_service import generate_query_embedding
 
@@ -41,7 +41,7 @@ async def precise_search(
     
     items = []
     for doc in documents:
-        items.append(DocumentResponse(
+        items.append(DocumentWithMdfResponse(
             id=doc.id,
             doc_number=doc.doc_number,
             title=doc.title,
@@ -55,6 +55,7 @@ async def precise_search(
             reserved_at=doc.reserved_at,
             created_at=doc.created_at,
             updated_at=doc.updated_at,
+            mdf_links=doc.mdf_links,
         ))
     
     return DocumentListResponse(
