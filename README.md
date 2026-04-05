@@ -76,6 +76,34 @@ docker exec -it dms-backend python -m app.scripts.seed_compliance
 
 ---
 
+## 🗄️ 資料庫遷移 (Alembic)
+
+我們的專案使用了 `Alembic` 作為資料庫遷移與版本控管工具。請確保所有的 Schema 變更都透過更改 `app.models.py` 後，使用自動產生遷移檔來執行。
+
+### 1. 產生新的遷移檔
+
+當修改了 `models.py` 後，在 `backend/` 下執行：
+
+```bash
+alembic revision --autogenerate -m "您的變更說明"
+```
+
+這會在 `alembic/versions/` 產生指令搞。建議打開此檔案做人工確認。
+
+### 2. 套用變更，升級資料庫
+
+```bash
+alembic upgrade head
+```
+
+### 3. 退回上一個版本 (Rollback)
+
+```bash
+alembic downgrade -1
+```
+
+---
+
 ## 🔐 安全與合規性
 
 *   **ISO 13485 支援**：內建設計開發歷史檔案 (DHF) 與產品主文檔 (MDF) 的管理邏輯，並支援分類化的品質文件編號體系。
