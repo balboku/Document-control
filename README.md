@@ -9,14 +9,15 @@
 為了符合 ISO 13485 醫療器材品質管理標準，並優化巨量資料的處理速度，系統實作了以下核心優化：
 
 1.  **高效率向量搜尋 (HNSW + halfvec)**：針對 3072 維的 Gemini 向量，採用 `pgvector 0.7+` 的半精度轉型技術 (`halfvec`) 突破維度限制，並透過 HNSW 索引確保在海量文件中進行語義比對時，延遲保持在毫秒級別。
-2.  **RRF 混合搜尋 (Hybrid Search)**：結合 PostgreSQL `tsvector`（全文檢索）與 `pgvector`（語義搜尋），並使用 **Reciprocal Rank Fusion (RRF)** 演算法自動融合排名，確保專有名詞（如文件編號）與語意概念都能被精確檢索。
-3.  **分類綁定文件編號 (Category-bound Numbering)**：支援針對不同文件分類（如 SOP、Record）設定獨立的編碼規則（Prefix、年份格式、位數），並內建全域預設 (Global Default) 機制與年度流水號自動歸零邏輯。
-4.  **全域操作者狀態管理 (User Context)**：實作基於 React Context API 的操作者模擬機制，支援在管理介面一鍵切換當前執行身分，並透過 `localStorage` 實現狀態持久化，確保稽核路徑的準確性。
-5.  **樂觀鎖 (Optimistic Locking)**：為檔案模型新增 `row_version` 控制機制，防止非同步與多人協作時的寫入衝突 (StaleDataError)，確保設計變更 (Change Control) 的資料完整性。
-6.  **智慧分頁與計數優化**：在無過濾條件時改用 `pg_class.reltuples` 估算總數，大幅降低大數據表的全表掃描 I/O 成本。
-7.  **JSONB 效能與稽核優化**：稽核日誌 (Audit Log) 已升級為 `JSONB` 並建立 Partial Index，支持對 `details` 中特定版本號、檔名的極速檢索。
-8.  **版本唯一性限制 (UQ)**：實作強制性的 `(document_id, version_number)` 唯一性約束，從資料庫底層杜絕重複版本號產生的品質風險。
-9.  **軟刪除與完整稽核軌跡**：符合醫療器材產業規範，所有文件刪除皆為標記式軟刪除，完整保留變更歷史與 `deleted_at` 稽核點。
+2.  **RRF 混合搜尋 (Hybrid Search) 與智慧分頁**：結合 PostgreSQL `tsvector`（全文檢索）與 `pgvector`（語義搜尋），並使用 **Reciprocal Rank Fusion (RRF)** 演算法自動融合排名。後端實作高效能 Python 端切片分頁 (Skip/Limit)，前端提供視覺化 Pagination 與關鍵字自動高亮 (Highlighting) 體驗。
+3.  **非同步 AI 處理 (Background Tasks)**：將極度耗時的 Gemini API 請求（OCR 解析、Metadata 擷取、Embedding 向量化）全部從 HTTP 請求週期中抽離，改由 FastAPI `BackgroundTasks` 在背景非同步執行。搭配前端完整的「Pending / Completed / Failed」狀態追蹤與一鍵重試 (Retry) 機制，極大化提升系統吞吐量與穩定性。
+4.  **一站式智慧拖曳上傳 (Smart Drag & Drop)**：重構繁雜的上傳流程，全新設計直覺的拖曳上傳區塊。使用者拖入檔案後，系統能在背景快速串流解析文件內容，並利用 AI 自動預填表單標題、分類與標籤 (Tag)，大幅減少人為輸入時間。
+5.  **分類綁定文件編號 (Category-bound Numbering)**：支援針對不同文件分類（如 SOP、Record）設定獨立的編碼規則（Prefix、年份格式、位數），並內建全域預設 (Global Default) 機制與年度流水號自動歸零邏輯。
+6.  **全域操作者狀態管理 (User Context)**：實作基於 React Context API 的操作者模擬機制，支援在管理介面一鍵切換當前執行身分，並透過 `localStorage` 實現狀態持久化，確保稽核路徑的準確性。
+7.  **樂觀鎖 (Optimistic Locking)**：為檔案模型新增 `row_version` 控制機制，防止非同步與多人協作時的寫入衝突 (StaleDataError)，確保設計變更 (Change Control) 的資料完整性。
+8.  **JSONB 效能與稽核優化**：稽核日誌 (Audit Log) 已升級為 `JSONB` 並建立 Partial Index，支持對 `details` 中特定版本號、檔名的極速檢索。
+9. **版本唯一性限制 (UQ)**：實作強制性的 `(document_id, version_number)` 唯一性約束，從資料庫底層杜絕重複版本號產生的品質風險。
+10. **軟刪除與完整稽核軌跡**：符合醫療器材產業規範，所有文件刪除皆為標記式軟刪除，完整保留變更歷史與 `deleted_at` 稽核點。
 
 ---
 

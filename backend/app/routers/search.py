@@ -24,6 +24,9 @@ from app.services.embedding_service import generate_query_embedding
 router = APIRouter(prefix="/api/search", tags=["search"])
 logger = logging.getLogger(__name__)
 
+# Maximum rows fetched before Python-side slicing for pagination
+_MAX_FETCH = 200
+
 
 @router.get("", response_model=DocumentListResponse)
 async def precise_search(
@@ -77,19 +80,21 @@ async def semantic_search(
     data: SemanticSearchRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    """Semantic search using Gemini Embedding 2 vectors with optional SQL pre-filtering."""
-    # Generate query embedding
+    """Semantic search using Gemini Embedding 2 vectors with optional SQL pre-filtering.
+
+    Supports pagination via `skip` and `limit` fields in the request body.
+    Returns `total_count`, `page`, and `total_pages` for the caller convenience.
+    """
     query_embedding = await generate_query_embedding(data.query)
 
     if not query_embedding:
-        return SemanticSearchResponse(results=[], query=data.query)
+        return SemanticSearchResponse(results=[], query=data.query, total_count=0, page=1, total_pages=1)
 
-    # Convert to string format for pgvector
     embedding_str = "[" + ",".join(str(x) for x in query_embedding) + "]"
 
     # Build dynamic WHERE conditions for pre-filtering
     extra_conditions = "AND d.deleted_at IS NULL"
-    params: dict = {"embedding": embedding_str, "limit": data.limit}
+    params: dict = {"embedding": embedding_str, "limit": _MAX_FETCH}
 
     if data.status:
         extra_conditions += " AND d.status = :status"
@@ -99,8 +104,7 @@ async def semantic_search(
         extra_conditions += " AND d.category_id = :category_id"
         params["category_id"] = str(data.category_id)
 
-    # Perform cosine similarity search using HNSW index (via <=> operator)
-    # SET LOCAL hnsw.ef_search = 100 ensures high recall during runtime query phase
+    # Fetch up to _MAX_FETCH rows; pagination is done in Python after dedup
     sql = text(f"""
         SELECT
             dc.document_id,
@@ -122,25 +126,36 @@ async def semantic_search(
         rows = result.fetchall()
     except Exception as e:
         logger.error(f"Semantic search query failed: {e}")
-        return SemanticSearchResponse(results=[], query=data.query)
+        return SemanticSearchResponse(results=[], query=data.query, total_count=0, page=1, total_pages=1)
 
-    # Deduplicate by document_id, keep highest similarity
-    seen = {}
-    results = []
+    # Deduplicate by document_id, keep highest similarity chunk
+    seen: dict = {}
+    all_results: list[SemanticSearchResult] = []
     for row in rows:
         doc_id = row[0]
         if doc_id not in seen:
             seen[doc_id] = True
-            results.append(SemanticSearchResult(
+            all_results.append(SemanticSearchResult(
                 document_id=doc_id,
                 doc_number=row[3],
                 title=row[4],
-                chunk_content=row[1][:300],
+                chunk_content=row[1][:500],
                 similarity_score=round(float(row[2]), 4),
                 status=row[5],
             ))
 
-    return SemanticSearchResponse(results=results, query=data.query)
+    total_count = len(all_results)
+    total_pages = max(1, (total_count + data.limit - 1) // data.limit)
+    current_page = (data.skip // data.limit) + 1 if data.limit else 1
+    paginated = all_results[data.skip: data.skip + data.limit]
+
+    return SemanticSearchResponse(
+        results=paginated,
+        query=data.query,
+        total_count=total_count,
+        page=current_page,
+        total_pages=total_pages,
+    )
 
 
 @router.post("/hybrid", response_model=SemanticSearchResponse)
@@ -160,14 +175,11 @@ async def hybrid_search(
     RRF 評分公式：score = Σ 1/(k + rank_i)
     其中 k=60 為業界標準常數，可抑制極高/低排名文件的過大影響。
 
-    Args:
-        data: 搜尋請求（query, status, category_id, limit）
-        rrf_k: RRF 常數，預設 60（業界標準）
+    Supports pagination via `skip` and `limit` in the request body.
     """
     if not data.query or not data.query.strip():
-        return SemanticSearchResponse(results=[], query=data.query)
+        return SemanticSearchResponse(results=[], query=data.query, total_count=0, page=1, total_pages=1)
 
-    # Step 1: 生成語義查詢向量
     query_embedding = await generate_query_embedding(data.query)
 
     if not query_embedding:
@@ -178,11 +190,10 @@ async def hybrid_search(
         if query_embedding else None
     )
 
-    # Step 2: 建立過濾條件
     filter_clauses = "AND d.deleted_at IS NULL"
     params: dict = {
         "query": data.query,
-        "limit": data.limit,
+        "limit": _MAX_FETCH,
         "rrf_k": rrf_k,
     }
 
@@ -194,18 +205,11 @@ async def hybrid_search(
         filter_clauses += " AND d.category_id = :category_id"
         params["category_id"] = str(data.category_id)
 
-    # ============================================================
-    # Step 3: 執行 RRF 混合搜尋
-    # ============================================================
-    # 策略：根據向量是否可用，選擇 全混合 或 純全文 模式
     if embedding_str:
         params["embedding"] = embedding_str
 
-        # [全混合模式] tsvector + pgvector → RRF 融合
-        # 使用 FULL OUTER JOIN 確保只在其中一路命中的文件也能被納入排名
         rrf_sql = text(f"""
             WITH
-            -- 語義搜尋排名：使用 pgvector HNSW 索引（<=> 餘弦距離）
             semantic_ranked AS (
                 SELECT
                     dc.document_id,
@@ -221,15 +225,11 @@ async def hybrid_search(
                 WHERE dc.embedding IS NOT NULL
                 {filter_clauses}
             ),
-            -- 去重：每個文件只保留最佳 chunk 排名
             semantic_best AS (
                 SELECT DISTINCT ON (document_id) document_id, doc_rank AS rank
                 FROM semantic_ranked
                 ORDER BY document_id, chunk_rank
             ),
-
-            -- 全文搜尋排名：使用 tsvector GIN 索引（@@ plainto_tsquery）
-            -- ts_rank_cd 計算覆蓋密度排名（適合文件編號等精確詞彙）
             fulltext_ranked AS (
                 SELECT
                     d.id AS document_id,
@@ -242,26 +242,18 @@ async def hybrid_search(
                   {'AND d.status = :status' if data.status else ''}
                   {'AND d.category_id = :category_id' if data.category_id else ''}
             ),
-
-            -- RRF 融合：Reciprocal Rank Fusion 評分合併
-            -- 公式：rrf_score = Σ 1/(k + rank_i)
-            -- FULL OUTER JOIN 確保只命中其中一路的文件也被納入
             rrf_scored AS (
                 SELECT
                     COALESCE(s.document_id, f.document_id) AS document_id,
                     COALESCE(1.0 / (:rrf_k + s.rank), 0.0) +
                     COALESCE(1.0 / (:rrf_k + f.rank), 0.0) AS rrf_score,
-                    -- 保留各自評分供偵錯用
                     COALESCE(1.0 / (:rrf_k + s.rank), 0.0) AS semantic_score,
                     COALESCE(1.0 / (:rrf_k + f.rank), 0.0) AS fulltext_score
                 FROM semantic_best s
                 FULL OUTER JOIN fulltext_ranked f ON s.document_id = f.document_id
             )
-
-            -- 最終結果：Join 文件資訊，依 RRF 分數排序
             SELECT
                 r.document_id,
-                -- 取最具代表性的 chunk（最接近查詢的那塊）
                 (
                     SELECT dc2.content
                     FROM document_chunks dc2
@@ -284,7 +276,6 @@ async def hybrid_search(
         """)
 
     else:
-        # [純全文模式] 向量生成失敗時退回純 tsvector 搜尋
         logger.warning("Hybrid search falling back to full-text only (no embedding)")
         rrf_sql = text(f"""
             SELECT
@@ -314,23 +305,34 @@ async def hybrid_search(
         rows = result.fetchall()
     except Exception as e:
         logger.error(f"Hybrid search query failed: {e}", exc_info=True)
-        return SemanticSearchResponse(results=[], query=data.query)
+        return SemanticSearchResponse(results=[], query=data.query, total_count=0, page=1, total_pages=1)
 
-    # Step 4: 組裝結果
-    results = []
+    # Build full result list then paginate in Python
+    all_results: list[SemanticSearchResult] = []
     for row in rows:
         chunk_content = row[1] or ""
-        results.append(SemanticSearchResult(
+        all_results.append(SemanticSearchResult(
             document_id=row[0],
             doc_number=row[3],
             title=row[4],
-            chunk_content=chunk_content[:300],
-            similarity_score=round(float(row[2]), 6),  # RRF score
+            chunk_content=chunk_content[:500],
+            similarity_score=round(float(row[2]), 6),
             status=row[5],
         ))
 
+    total_count = len(all_results)
+    total_pages = max(1, (total_count + data.limit - 1) // data.limit)
+    current_page = (data.skip // data.limit) + 1 if data.limit else 1
+    paginated = all_results[data.skip: data.skip + data.limit]
+
     logger.info(
-        f"Hybrid search '{data.query}': {len(results)} results "
+        f"Hybrid search '{data.query}': {total_count} total, page {current_page}/{total_pages} "
         f"(embedding={'yes' if embedding_str else 'no'}, rrf_k={rrf_k})"
     )
-    return SemanticSearchResponse(results=results, query=data.query)
+    return SemanticSearchResponse(
+        results=paginated,
+        query=data.query,
+        total_count=total_count,
+        page=current_page,
+        total_pages=total_pages,
+    )

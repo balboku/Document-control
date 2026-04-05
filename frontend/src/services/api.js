@@ -164,6 +164,11 @@ export const semanticSearch = async (queryData) => {
   return data;
 };
 
+export const hybridSearch = async (queryData) => {
+  const { data } = await api.post('/search/hybrid', queryData);
+  return data;
+};
+
 // Export API
 export const exportDocumentListCSV = async (paramsData) => {
   const response = await api.post('/export/list', { ...paramsData, format: 'csv' }, { responseType: 'blob' });

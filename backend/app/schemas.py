@@ -220,6 +220,7 @@ class ReserveResponse(BaseModel):
 class SemanticSearchRequest(BaseModel):
     query: str = Field(..., min_length=1)
     limit: int = Field(default=10, ge=1, le=50)
+    skip: int = Field(default=0, ge=0)
     category_id: Optional[UUID] = None
     status: Optional[str] = None
 
@@ -234,6 +235,9 @@ class SemanticSearchResult(BaseModel):
 class SemanticSearchResponse(BaseModel):
     results: List[SemanticSearchResult]
     query: str
+    total_count: int = 0
+    page: int = 1
+    total_pages: int = 1
 
 
 # ============ Audit Log Schemas ============
