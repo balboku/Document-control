@@ -156,15 +156,6 @@ class DocumentChunk(Base):
     __table_args__ = (
         Index("idx_chunks_document_id", "document_id"),
         Index("idx_chunks_version_id", "version_id"),
-        # [優化1] HNSW 向量索引：大幅加速近似最近鄰向量搜尋（cosine 距離）
-        # m=16: 每個節點最多連接數；ef_construction=64: 建立索引時的搜尋範圍
-        Index(
-            "idx_chunks_embedding_hnsw",
-            "embedding",
-            postgresql_using="hnsw",
-            postgresql_with={"m": 16, "ef_construction": 64},
-            postgresql_ops={"embedding": "vector_cosine_ops"},
-        ),
     )
 
 
@@ -224,4 +215,41 @@ class MDFDocumentLink(Base):
     __table_args__ = (
         Index("idx_mdf_links_project_id", "mdf_project_id"),
         Index("idx_mdf_links_document_id", "document_id"),
+    )
+
+class RegulatoryRequirement(Base):
+    __tablename__ = "regulatory_requirements"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    standard_name = Column(String(100), nullable=False)  # e.g., "ISO 13485:2016"
+    clause_no = Column(String(50), nullable=False)      # e.g., "7.3.3"
+    title = Column(String(255), nullable=True)
+    requirement_text = Column(Text, nullable=False)
+    embedding = Column(Vector(3072), nullable=True)     # For semantic mapping
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("idx_regulatory_standard_clause", "standard_name", "clause_no"),
+    )
+
+
+class ComplianceInsight(Base):
+    __tablename__ = "compliance_insights"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    type = Column(String(50), nullable=False)  # "MISSING_DOC", "RELEVANT_CLAUSE", "AUDIT_TIP"
+    title = Column(String(200), nullable=False)
+    content = Column(Text, nullable=False)
+    severity = Column(String(20), default="info")  # "info", "warning", "critical"
+    
+    # Optional linking to specific relevant data
+    related_id = Column(UUID(as_uuid=True), nullable=True)
+    
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=True)
+
+    __table_args__ = (
+        Index("idx_insights_type", "type"),
+        Index("idx_insights_created_at", "created_at"),
     )

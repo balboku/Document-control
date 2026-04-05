@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.database import engine, Base
 from app.config import get_settings
-from app.routers import settings, documents, search, export, mdf
+from app.routers import settings, documents, search, export, mdf, compliance
 
 
 logging.basicConfig(level=logging.INFO)
@@ -62,6 +62,7 @@ app.include_router(documents.router)
 app.include_router(search.router)
 app.include_router(export.router)
 app.include_router(mdf.router)
+app.include_router(compliance.router)
 
 
 

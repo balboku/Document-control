@@ -250,5 +250,16 @@ export const unlinkDocumentFromMdf = async (linkId) => {
   return data;
 };
 
+// Compliance API
+export const getComplianceInsights = async (forceRefresh = false) => {
+  const { data } = await api.get(`/compliance/insights?force_refresh=${forceRefresh}`);
+  return data;
+};
+
+export const triggerComplianceAnalysis = async () => {
+  const { data } = await api.post('/compliance/analyze');
+  return data;
+};
+
 export default api;
 
