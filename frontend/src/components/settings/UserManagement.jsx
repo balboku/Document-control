@@ -12,7 +12,7 @@ export default function UserManagement() {
   const [mode, setMode] = useState('create'); // 'create' or 'edit'
   const [editingUserId, setEditingUserId] = useState(null);
   
-  const [formData, setFormData] = useState({ name: '', department: '', is_active: true });
+  const [formData, setFormData] = useState({ name: '', department: '', is_active: true, role: 'editor' });
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -32,7 +32,7 @@ export default function UserManagement() {
 
   const handleOpenAdd = () => {
     setMode('create');
-    setFormData({ name: '', department: '', is_active: true });
+    setFormData({ name: '', department: '', is_active: true, role: 'editor' });
     setShowForm(true);
   };
 
@@ -42,7 +42,8 @@ export default function UserManagement() {
     setFormData({ 
       name: user.name, 
       department: user.department || '',
-      is_active: user.is_active
+      is_active: user.is_active,
+      role: user.role || 'editor'
     });
     setShowForm(true);
   };
@@ -58,7 +59,7 @@ export default function UserManagement() {
       } else {
         await updateSettingsUser(editingUserId, formData);
       }
-      setFormData({ name: '', department: '', is_active: true });
+      setFormData({ name: '', department: '', is_active: true, role: 'editor' });
       setShowForm(false);
       fetchUsers();
     } catch (error) {
@@ -136,6 +137,18 @@ export default function UserManagement() {
               />
             </div>
           </div>
+
+          <div className="mt-5">
+            <label className="block text-sm font-bold text-slate-700 mb-1.5">權限角色 <span className="text-red-500">*</span></label>
+            <select 
+              value={formData.role} onChange={e => setFormData({...formData, role: e.target.value})}
+              className="w-full md:w-1/2 px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-primary-500 outline-none transition-all"
+            >
+              <option value="admin">系統管理員 (Admin)</option>
+              <option value="editor">編輯人員 (Editor)</option>
+              <option value="viewer">檢視人員 (Viewer)</option>
+            </select>
+          </div>
           
           <div className="mt-5 flex items-center">
              <label className="flex items-center cursor-pointer group">
@@ -173,6 +186,7 @@ export default function UserManagement() {
             <tr>
               <th className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-widest">姓名</th>
               <th className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-widest">部門</th>
+              <th className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-widest">角色</th>
               <th className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-widest">狀態</th>
               <th className="px-6 py-4 text-right text-xs font-bold text-slate-500 uppercase tracking-widest">操作</th>
             </tr>
@@ -186,6 +200,11 @@ export default function UserManagement() {
                    <div className="text-sm font-bold text-slate-900">{user.name}</div>
                 </td>
                 <td className="px-6 py-5 whitespace-nowrap text-sm font-medium text-slate-500">{user.department || '-'}</td>
+                <td className="px-6 py-5 whitespace-nowrap">
+                  {user.role === 'admin' && <span className="inline-flex px-2.5 py-1 rounded-lg text-xs font-bold bg-red-100 text-red-700">管理員</span>}
+                  {user.role === 'editor' && <span className="inline-flex px-2.5 py-1 rounded-lg text-xs font-bold bg-blue-100 text-blue-700">編輯員</span>}
+                  {user.role === 'viewer' && <span className="inline-flex px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-100 text-slate-600">檢視員</span>}
+                </td>
                 <td className="px-6 py-5 whitespace-nowrap">
                   <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold ${user.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
                     {user.is_active ? <CheckCircle className="w-3 h-3 mr-1" /> : <XCircle className="w-3 h-3 mr-1" />}

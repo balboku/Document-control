@@ -17,6 +17,7 @@ class User(Base):
     name = Column(String(100), nullable=False)
     department = Column(String(100), nullable=True)
     is_active = Column(Boolean, default=True)
+    role = Column(String(20), nullable=False, default="editor")  # admin / editor / viewer
     created_at = Column(DateTime, default=datetime.utcnow)
 
     # Relationships

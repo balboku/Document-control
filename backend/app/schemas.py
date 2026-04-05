@@ -6,20 +6,25 @@ from uuid import UUID
 
 # ============ User Schemas ============
 
+VALID_ROLES = ["admin", "editor", "viewer"]
+
 class UserCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     department: Optional[str] = None
+    role: Optional[str] = "editor"
 
 class UserUpdate(BaseModel):
     name: Optional[str] = None
     department: Optional[str] = None
     is_active: Optional[bool] = None
+    role: Optional[str] = None
 
 class UserResponse(BaseModel):
     id: UUID
     name: str
     department: Optional[str]
     is_active: bool
+    role: str = "editor"
     created_at: datetime
 
     class Config:
@@ -205,6 +210,8 @@ class ReserveResponse(BaseModel):
 class SemanticSearchRequest(BaseModel):
     query: str = Field(..., min_length=1)
     limit: int = Field(default=10, ge=1, le=50)
+    category_id: Optional[UUID] = None
+    status: Optional[str] = None
 
 class SemanticSearchResult(BaseModel):
     document_id: UUID
@@ -290,6 +297,10 @@ class ExportRequest(BaseModel):
 
 class BatchDownloadRequest(BaseModel):
     document_ids: List[UUID]
+
+class BatchStatusUpdateRequest(BaseModel):
+    document_ids: List[UUID]
+    status: str
 
 class DocumentStatsResponse(BaseModel):
     active_count: int

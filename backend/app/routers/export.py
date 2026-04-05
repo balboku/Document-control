@@ -78,3 +78,57 @@ async def export_document_list(
             media_type="text/csv",
             headers={"Content-Disposition": f"attachment; filename=documents_{datetime.now().strftime('%Y%m%d')}.csv"}
         )
+
+
+@router.get("/mdf/{project_id}/checklist")
+async def export_mdf_checklist(
+    project_id: UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Export MDF checklist as an Excel file."""
+    from app.models import MDFProject, MDFDocumentLink
+    from app.services.export_service import generate_mdf_excel
+    
+    # Load project with all its links
+    stmt = (
+        select(MDFProject)
+         .options(
+            joinedload(MDFProject.linked_documents).joinedload(MDFDocumentLink.document).joinedload(Document.author),
+            joinedload(MDFProject.linked_documents).joinedload(MDFDocumentLink.document).joinedload(Document.category)
+        )
+        .where(MDFProject.id == project_id)
+    )
+    result = await db.execute(stmt)
+    project = result.unique().scalar_one_or_none()
+    
+    if not project:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="MDF Project not found")
+
+    project_data = {
+        "product_name": project.product_name,
+        "project_no": project.project_no,
+        "classification": project.classification
+    }
+
+    links_data = []
+    for link in project.linked_documents:
+        if link.document:
+            links_data.append({
+                "item_no": link.item_no,
+                "doc_number": link.document.doc_number,
+                "title": link.document.title or "",
+                "status": link.document.status,
+                "current_version": link.document.current_version or "",
+                "author_name": link.document.author.name if link.document.author else "",
+                "category_name": link.document.category.name if link.document.category else ""
+            })
+
+    content = generate_mdf_excel(project_data, links_data)
+    
+    return StreamingResponse(
+        io.BytesIO(content),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename=MDF_Checklist_{project.project_no}_{datetime.now().strftime('%Y%m%d')}.xlsx"}
+    )
+

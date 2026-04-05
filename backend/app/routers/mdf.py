@@ -202,8 +202,85 @@ async def unlink_document_from_mdf(
     stmt = delete(MDFDocumentLink).where(MDFDocumentLink.id == link_id)
     result = await db.execute(stmt)
     await db.commit()
-    
+
     if result.rowcount == 0:
         raise HTTPException(status_code=404, detail="Link not found")
-    
+
     return {"status": "success", "message": "Document unlinked successfully"}
+
+
+@router.post("/{project_id}/duplicate", response_model=MDFProjectResponse)
+async def duplicate_mdf_project(
+    project_id: UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Deep copy an MDF project including all item links (1~18)."""
+    from datetime import datetime
+
+    # Load original project with all links
+    stmt = (
+        select(MDFProject)
+        .options(selectinload(MDFProject.linked_documents))
+        .where(MDFProject.id == project_id)
+    )
+    result = await db.execute(stmt)
+    original = result.unique().scalar_one_or_none()
+
+    if not original:
+        raise HTTPException(status_code=404, detail="MDF Project not found")
+
+    # Generate a unique project_no suffix using timestamp
+    timestamp_suffix = datetime.now().strftime("%m%d%H%M")
+    new_project_no = f"{original.project_no}-COPY-{timestamp_suffix}"
+
+    # Ensure uniqueness (edge case: rapid duplicate calls)
+    existing = await db.execute(
+        select(MDFProject).where(MDFProject.project_no == new_project_no)
+    )
+    if existing.scalar_one_or_none():
+        new_project_no = f"{original.project_no}-COPY-{datetime.now().strftime('%m%d%H%M%S')}"
+
+    # Create new project
+    new_project = MDFProject(
+        product_name=f"{original.product_name} (複製)",
+        project_no=new_project_no,
+        classification=original.classification,
+    )
+    db.add(new_project)
+    await db.flush()  # get new project ID before adding links
+
+    # Deep copy all document links
+    for link in original.linked_documents:
+        new_link = MDFDocumentLink(
+            mdf_project_id=new_project.id,
+            item_no=link.item_no,
+            document_id=link.document_id,
+        )
+        db.add(new_link)
+
+    await db.commit()
+
+    # Reload with full relationships for response
+    stmt = (
+        select(MDFProject)
+        .options(
+            selectinload(MDFProject.linked_documents)
+            .joinedload(MDFDocumentLink.document)
+            .selectinload(Document.author),
+            selectinload(MDFProject.linked_documents)
+            .joinedload(MDFDocumentLink.document)
+            .selectinload(Document.category),
+        )
+        .where(MDFProject.id == new_project.id)
+    )
+    result = await db.execute(stmt)
+    new_project_full = result.unique().scalar_one()
+
+    # Manual mapping for author/category names
+    for lnk in new_project_full.linked_documents:
+        if lnk.document:
+            lnk.document.author_name = lnk.document.author.name if lnk.document.author else None
+            lnk.document.category_name = lnk.document.category.name if lnk.document.category else None
+
+    return new_project_full
+

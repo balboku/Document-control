@@ -18,9 +18,9 @@ from app.schemas import (
     DocumentUploadResponse, DocumentConfirm, DocumentUpdate,
     DocumentResponse, DocumentDetailResponse, DocumentVersionResponse,
     DocumentListResponse, ReserveRequest, ReserveResponse,
-    AuditLogResponse, BatchDownloadRequest, DocumentStatsResponse,
-    RelationAnalysisResponse, DocumentHistoryResponse, RelatedDocumentResponse,
-    ExtractMetadataResponse, DocumentCreate,
+    AuditLogResponse, BatchDownloadRequest, BatchStatusUpdateRequest,
+    DocumentStatsResponse, RelationAnalysisResponse, DocumentHistoryResponse,
+    RelatedDocumentResponse, ExtractMetadataResponse, DocumentCreate,
 )
 from app.services import document_service
 from app.services.document_service import (
@@ -590,6 +590,57 @@ async def reindex_all_documents_endpoint(
     """Re-index ALL documents that are missing embeddings."""
     result = await reindex_all_documents(db)
     return result
+
+
+@router.post("/batch-status")
+async def batch_update_status(
+    data: BatchStatusUpdateRequest,
+    actor_id: Optional[UUID] = Query(None),
+    db: AsyncSession = Depends(get_db),
+):
+    """Batch update status for multiple documents."""
+    valid_statuses = ["reserved", "draft", "active", "archived"]
+    if data.status not in valid_statuses:
+        raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {valid_statuses}")
+
+    # Get actor name once
+    actor_name = None
+    if actor_id:
+        user_result = await db.execute(select(User).where(User.id == actor_id))
+        user = user_result.scalar_one_or_none()
+        if user:
+            actor_name = user.name
+
+    updated_ids = []
+    for doc_id in data.document_ids:
+        result = await db.execute(select(Document).where(Document.id == doc_id))
+        document = result.scalar_one_or_none()
+        if not document or document.deleted_at is not None:
+            continue
+
+        old_status = document.status
+        document.status = data.status
+        document.updated_at = datetime.utcnow()
+
+        audit = AuditLog(
+            document_id=doc_id,
+            action="STATUS_CHANGE",
+            actor_id=actor_id,
+            actor_name=actor_name,
+            details={"from": old_status, "to": data.status, "batch": True},
+        )
+        db.add(audit)
+        updated_ids.append(str(doc_id))
+
+    await db.commit()
+    return {
+        "message": f"成功更新 {len(updated_ids)} 筆文件狀態為 {data.status}",
+        "updated_count": len(updated_ids),
+        "updated_ids": updated_ids,
+    }
+
+
+
 @router.delete("/{doc_id}")
 async def delete_document(
     doc_id: UUID,

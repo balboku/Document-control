@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Library, Search, ChevronRight, X, Edit2, Trash2 } from 'lucide-react';
-import { getMdfProjects, createMdfProject, updateMdfProject, deleteMdfProject } from '../services/api';
+import { Plus, Library, Search, ChevronRight, X, Edit2, Trash2, Copy } from 'lucide-react';
+import { getMdfProjects, createMdfProject, updateMdfProject, deleteMdfProject, duplicateMdfProject } from '../services/api';
 import LoadingSpinner from '../components/common/LoadingSpinner';
 
 export default function MdfList() {
@@ -69,6 +69,22 @@ export default function MdfList() {
       fetchProjects();
     } catch (err) {
       alert(err.response?.data?.detail || '刪除失敗');
+    }
+  };
+
+  const handleDuplicate = async (e, project) => {
+    e.stopPropagation();
+    if (!window.confirm(`確定要複製專案「${project.product_name}」及其 1-18 項次文件關聯嗎？`)) {
+      return;
+    }
+    
+    setLoading(true);
+    try {
+      await duplicateMdfProject(project.id);
+      fetchProjects();
+    } catch (err) {
+      alert(err.response?.data?.detail || '複製失敗');
+      setLoading(false);
     }
   };
 
@@ -178,6 +194,13 @@ export default function MdfList() {
                           title="編輯"
                         >
                           <Edit2 className="w-4 h-4" />
+                        </button>
+                        <button 
+                          onClick={(e) => handleDuplicate(e, project)}
+                          className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
+                          title="複製"
+                        >
+                          <Copy className="w-4 h-4" />
                         </button>
                         <button 
                           onClick={(e) => handleDelete(e, project)}

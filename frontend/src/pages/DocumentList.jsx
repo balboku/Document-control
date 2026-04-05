@@ -10,7 +10,8 @@ import StatusBadge from '../components/common/StatusBadge';
 import FileIcon from '../components/common/FileIcon';
 import LoadingSpinner from '../components/common/LoadingSpinner';
 import { format } from 'date-fns';
-import { Filter, Search, Download, Plus, Layers, User, MoreVertical, FileText, Trash2 } from 'lucide-react';
+import { Filter, Search, Download, Plus, Layers, User, MoreVertical, FileText, Trash2, CheckSquare } from 'lucide-react';
+import { batchDownload, batchUpdateStatus } from '../services/api';
 
 
 export default function DocumentList() {
@@ -20,6 +21,12 @@ export default function DocumentList() {
   const [loading, setLoading] = useState(true);
   const [showUpload, setShowUpload] = useState(false);
   const [selectedDocId, setSelectedDocId] = useState(null);
+  
+  // Batch processing
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [showBatchStatusModal, setShowBatchStatusModal] = useState(false);
+  const [batchStatusValue, setBatchStatusValue] = useState('');
+  const [batchProcessing, setBatchProcessing] = useState(false);
   
   // Filters
   const [searchTerm, setSearchTerm] = useState('');
@@ -37,6 +44,8 @@ export default function DocumentList() {
 
   useEffect(() => {
     fetchData();
+    // Clear selection when filters change
+    setSelectedIds(new Set());
   }, [page, statusFilter, authorFilter, categoryFilter, searchTerm]);
 
   const fetchOptions = async () => {
@@ -87,8 +96,50 @@ export default function DocumentList() {
     }
   };
 
+  const handleSelectAll = (e) => {
+    if (e.target.checked) {
+      setSelectedIds(new Set(documents.map(d => d.id)));
+    } else {
+      setSelectedIds(new Set());
+    }
+  };
 
-  return (
+  const handleSelectOne = (id) => {
+    const newSelected = new Set(selectedIds);
+    if (newSelected.has(id)) {
+      newSelected.delete(id);
+    } else {
+      newSelected.add(id);
+    }
+    setSelectedIds(newSelected);
+  };
+
+  const handleBatchDownload = async () => {
+    if (selectedIds.size === 0) return;
+    try {
+      await batchDownload(Array.from(selectedIds));
+    } catch (e) {
+      alert('批次下載失敗。');
+      console.error(e);
+    }
+  };
+
+  const handleBatchStatusSubmit = async () => {
+    if (!batchStatusValue || selectedIds.size === 0) return;
+    setBatchProcessing(true);
+    try {
+      await batchUpdateStatus(Array.from(selectedIds), batchStatusValue);
+      setShowBatchStatusModal(false);
+      setBatchStatusValue('');
+      setSelectedIds(new Set());
+      fetchData();
+    } catch (e) {
+      alert('批次更新狀態失敗。');
+      console.error(e);
+    } finally {
+      setBatchProcessing(false);
+    }
+  };  return (
     <div className="animate-in fade-in duration-500 h-full flex flex-col">
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-2xl font-bold text-slate-800">文件清單</h2>
@@ -180,6 +231,14 @@ export default function DocumentList() {
             <table className="min-w-full divide-y divide-slate-200">
               <thead className="bg-slate-50 sticky top-0 z-0">
                 <tr>
+                  <th className="px-6 py-4 text-left w-12">
+                    <input 
+                      type="checkbox" 
+                      className="w-4 h-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500 cursor-pointer"
+                      checked={documents.length > 0 && selectedIds.size === documents.length}
+                      onChange={handleSelectAll}
+                    />
+                  </th>
                   <th className="px-6 py-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">文件名稱 / 編號</th>
                   <th className="px-6 py-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">狀態 / 版本</th>
                   <th className="px-6 py-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">屬性</th>
@@ -190,7 +249,7 @@ export default function DocumentList() {
               <tbody className="bg-white divide-y divide-slate-100">
                 {documents.length === 0 && !loading ? (
                   <tr>
-                    <td colSpan="5" className="px-6 py-12 text-center text-slate-500 text-sm">
+                    <td colSpan="6" className="px-6 py-12 text-center text-slate-500 text-sm">
                       <div className="flex flex-col items-center">
                         <FileText className="w-12 h-12 text-slate-300 mb-3" />
                         <p>找不到符合條件的文件</p>
@@ -198,7 +257,15 @@ export default function DocumentList() {
                     </td>
                   </tr>
                 ) : documents.map(doc => (
-                  <tr key={doc.id} className="hover:bg-slate-50/80 transition-colors group">
+                  <tr key={doc.id} className={`hover:bg-slate-50/80 transition-colors group ${selectedIds.has(doc.id) ? 'bg-primary-50/30' : ''}`}>
+                    <td className="px-6 py-4">
+                      <input 
+                        type="checkbox" 
+                        className="w-4 h-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500 cursor-pointer"
+                        checked={selectedIds.has(doc.id)}
+                        onChange={() => handleSelectOne(doc.id)}
+                      />
+                    </td>
                     <td className="px-6 py-4">
                       <div className="flex items-start">
                         <FileIcon type={doc.current_version ? 'pdf' : 'doc'} className="mt-1 mr-3 shrink-0" />
@@ -282,6 +349,70 @@ export default function DocumentList() {
           </div>
         </div>
       </div>
+
+      {/* Action Bar for Batch Operations */}
+      {selectedIds.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-white rounded-2xl shadow-2xl border border-slate-200 px-6 py-4 flex items-center space-x-6 z-40 animate-in slide-in-from-bottom-8">
+          <div className="flex items-center space-x-2 border-r border-slate-200 pr-6">
+            <CheckSquare className="w-5 h-5 text-primary-600" />
+            <span className="font-semibold text-slate-800">已選取 {selectedIds.size} 筆</span>
+          </div>
+          <div className="flex items-center space-x-3">
+            <button 
+              onClick={() => setShowBatchStatusModal(true)}
+              className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition text-sm font-medium"
+            >
+              批次變更狀態
+            </button>
+            <button 
+              onClick={handleBatchDownload}
+              className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl transition text-sm font-medium flex items-center"
+            >
+              <Download className="w-4 h-4 mr-2" /> 批次下載 ZIP
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Batch Status Modal */}
+      {showBatchStatusModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => !batchProcessing && setShowBatchStatusModal(false)} />
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm relative z-10 p-6 animate-in zoom-in-95 duration-200">
+            <h3 className="text-lg font-bold text-slate-900 mb-4">批次變更狀態</h3>
+            <p className="text-sm text-slate-500 mb-4">您即將變更 {selectedIds.size} 筆文件的狀態。</p>
+            
+            <div className="mb-6">
+              <label className="block text-sm font-semibold text-slate-700 mb-2">選擇新狀態</label>
+              <select 
+                value={batchStatusValue} 
+                onChange={e => setBatchStatusValue(e.target.value)}
+                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-primary-500 outline-none transition-all"
+              >
+                <option value="" disabled>請選擇...</option>
+                <option value="draft">草稿</option>
+                <option value="active">已歸檔</option>
+                <option value="archived">已封存</option>
+              </select>
+            </div>
+            
+            <div className="flex space-x-3">
+              <button 
+                onClick={() => setShowBatchStatusModal(false)} disabled={batchProcessing}
+                className="flex-1 px-4 py-2.5 border border-slate-200 text-slate-600 rounded-xl hover:bg-slate-50 transition-colors font-medium text-sm"
+              >
+                取消
+              </button>
+              <button 
+                onClick={handleBatchStatusSubmit} disabled={!batchStatusValue || batchProcessing}
+                className="flex-1 px-4 py-2.5 bg-primary-600 text-white rounded-xl hover:bg-primary-700 disabled:opacity-50 transition-all font-medium text-sm shadow-sm"
+              >
+                {batchProcessing ? '處理中...' : '確認變更'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showUpload && (
         <DocumentUpload 

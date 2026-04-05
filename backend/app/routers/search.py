@@ -68,19 +68,31 @@ async def semantic_search(
     data: SemanticSearchRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    """Semantic search using Gemini Embedding 2 vectors."""
+    """Semantic search using Gemini Embedding 2 vectors with optional SQL pre-filtering."""
     # Generate query embedding
     query_embedding = await generate_query_embedding(data.query)
-    
+
     if not query_embedding:
         return SemanticSearchResponse(results=[], query=data.query)
-    
+
     # Convert to string format for pgvector
     embedding_str = "[" + ",".join(str(x) for x in query_embedding) + "]"
-    
-    # Perform cosine similarity search
-    sql = text("""
-        SELECT 
+
+    # Build dynamic WHERE conditions for pre-filtering
+    extra_conditions = "AND d.deleted_at IS NULL"
+    params: dict = {"embedding": embedding_str, "limit": data.limit}
+
+    if data.status:
+        extra_conditions += " AND d.status = :status"
+        params["status"] = data.status
+
+    if data.category_id:
+        extra_conditions += " AND d.category_id = :category_id"
+        params["category_id"] = str(data.category_id)
+
+    # Perform cosine similarity search with pre-filters applied in SQL
+    sql = text(f"""
+        SELECT
             dc.document_id,
             dc.content,
             1 - (dc.embedding <=> :embedding::vector) as similarity,
@@ -90,17 +102,14 @@ async def semantic_search(
         FROM document_chunks dc
         JOIN documents d ON dc.document_id = d.id
         WHERE dc.embedding IS NOT NULL
+        {extra_conditions}
         ORDER BY dc.embedding <=> :embedding::vector
         LIMIT :limit
     """)
-    
-    result = await db.execute(
-        sql,
-        {"embedding": embedding_str, "limit": data.limit}
-    )
-    
+
+    result = await db.execute(sql, params)
     rows = result.fetchall()
-    
+
     # Deduplicate by document_id, keep highest similarity
     seen = {}
     results = []
@@ -116,5 +125,6 @@ async def semantic_search(
                 similarity_score=round(float(row[2]), 4),
                 status=row[5],
             ))
-    
+
     return SemanticSearchResponse(results=results, query=data.query)
+

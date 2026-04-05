@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { semanticSearch } from '../services/api';
+import React, { useState, useEffect } from 'react';
+import { semanticSearch, getSettingsCategories } from '../services/api';
 import StatusBadge from '../components/common/StatusBadge';
 import LoadingSpinner from '../components/common/LoadingSpinner';
 import { Search, Sparkles, AlertCircle } from 'lucide-react';
@@ -9,6 +9,23 @@ export default function SearchPage() {
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
+  
+  const [categoryId, setCategoryId] = useState('');
+  const [status, setStatus] = useState('');
+  const [categories, setCategories] = useState([]);
+
+  useEffect(() => {
+    fetchOptions();
+  }, []);
+
+  const fetchOptions = async () => {
+    try {
+      const cats = await getSettingsCategories();
+      setCategories(cats);
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   const handleSearch = async (e) => {
     e.preventDefault();
@@ -17,7 +34,11 @@ export default function SearchPage() {
     setLoading(true);
     setHasSearched(true);
     try {
-      const data = await semanticSearch({ query, limit: 10 });
+      const reqData = { query, limit: 10 };
+      if (categoryId) reqData.category_id = categoryId;
+      if (status) reqData.status = status;
+      
+      const data = await semanticSearch(reqData);
       setResults(data.results);
     } catch (error) {
       console.error('Search error', error);
@@ -41,16 +62,43 @@ export default function SearchPage() {
           type="text" 
           value={query}
           onChange={e => setQuery(e.target.value)}
-          className="w-full px-6 py-5 text-lg border-2 border-slate-200 rounded-2xl shadow-sm focus:outline-none focus:border-primary-500 focus:ring-4 focus:ring-primary-500/10 transition-all pr-36 bg-white shrink-0"
+          className="w-full px-6 py-5 text-lg border-2 border-slate-200 rounded-t-2xl shadow-sm focus:outline-none focus:border-primary-500 focus:ring-4 focus:ring-primary-500/10 transition-all pr-36 bg-white shrink-0"
           placeholder="例如：關於產品退貨的處理流程規範..."
         />
         <button 
           type="submit" disabled={loading || !query.trim()}
-          className="absolute right-3 top-3 bottom-3 px-6 bg-slate-900 text-white rounded-xl font-medium hover:bg-slate-800 transition-colors shadow-sm disabled:opacity-50 flex items-center"
+          className="absolute right-3 top-3 px-6 py-3 bg-slate-900 text-white rounded-xl font-medium hover:bg-slate-800 transition-colors shadow-sm disabled:opacity-50 flex items-center z-10"
         >
           {loading ? <LoadingSpinner size="sm" className="mr-2" /> : <Search className="w-5 h-5 mr-2" />}
           搜尋
         </button>
+        
+        {/* Filters Bar */}
+        <div className="flex px-4 py-3 bg-slate-50 border-x-2 border-b-2 border-slate-200 rounded-b-2xl border-t-0 space-x-4">
+          <div className="flex-1">
+            <select 
+              value={categoryId} 
+              onChange={e => setCategoryId(e.target.value)}
+              className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+            >
+              <option value="">全部類別</option>
+              {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </div>
+          <div className="flex-1">
+            <select 
+              value={status} 
+              onChange={e => setStatus(e.target.value)}
+              className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+            >
+              <option value="">全部狀態</option>
+              <option value="active">已歸檔</option>
+              <option value="draft">草稿</option>
+              <option value="reserved">預約中</option>
+              <option value="archived">已封存</option>
+            </select>
+          </div>
+        </div>
       </form>
       
       {hasSearched && (

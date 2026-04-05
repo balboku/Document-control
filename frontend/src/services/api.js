@@ -112,6 +112,11 @@ export const updateDocumentStatus = async (id, status, actorId) => {
   return data;
 };
 
+export const batchUpdateStatus = async (documentIds, status) => {
+  const { data } = await api.post('/documents/batch-status', { document_ids: documentIds, status });
+  return data;
+};
+
 export const uploadNewVersion = async (id, versionNumber, actorId, file) => {
   const formData = new FormData();
   formData.append('file', file);
@@ -193,6 +198,17 @@ export const batchDownload = async (documentIds, actorId) => {
   link.remove();
 };
 
+export const exportMdfChecklist = async (projectId) => {
+  const response = await api.get(`/export/mdf/${projectId}/checklist`, { responseType: 'blob' });
+  const url = window.URL.createObjectURL(new Blob([response.data]));
+  const link = document.createElement('a');
+  link.href = url;
+  link.setAttribute('download', `MDF_Checklist_${projectId}_${new Date().toISOString().slice(0,10)}.xlsx`);
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+};
+
 // MDF API
 export const getMdfProjects = async () => {
   const { data } = await api.get('/mdf');
@@ -211,6 +227,11 @@ export const updateMdfProject = async (id, projectData) => {
 
 export const deleteMdfProject = async (id) => {
   const { data } = await api.delete(`/mdf/${id}`);
+  return data;
+};
+
+export const duplicateMdfProject = async (id) => {
+  const { data } = await api.post(`/mdf/${id}/duplicate`);
   return data;
 };
 

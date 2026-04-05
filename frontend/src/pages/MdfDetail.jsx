@@ -3,11 +3,11 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { 
   ArrowLeft, FileText, Link as LinkIcon, Trash2, Plus, 
   Search, X, Check, ExternalLink, Library, LayoutGrid, List as ListIcon,
-  Edit2
+  Edit2, Download
 } from 'lucide-react';
 import { 
   getMdfProject, getDocuments, linkDocumentToMdf, unlinkDocumentFromMdf,
-  updateMdfProject, deleteMdfProject 
+  updateMdfProject, deleteMdfProject, exportMdfChecklist
 } from '../services/api';
 import LoadingSpinner from '../components/common/LoadingSpinner';
 import StatusBadge from '../components/common/StatusBadge';
@@ -97,6 +97,15 @@ export default function MdfDetail() {
       navigate('/mdf');
     } catch (err) {
       alert(err.response?.data?.detail || '刪除專案失敗');
+    }
+  };
+
+  const handleExportChecklist = async () => {
+    try {
+      await exportMdfChecklist(id);
+    } catch (err) {
+      alert('匯出失敗，請重試。');
+      console.error(err);
     }
   };
 
@@ -190,8 +199,16 @@ export default function MdfDetail() {
           
           <div className="flex items-center gap-2">
             <button 
+              onClick={handleExportChecklist}
+              className="px-4 py-2 bg-slate-900 text-white rounded-xl hover:bg-slate-800 transition-all font-bold text-sm shadow-sm flex items-center"
+              title="匯出 Excel 檢查表"
+            >
+              <Download className="w-4 h-4 mr-2" />
+              匯出檢查表
+            </button>
+            <button 
               onClick={handleOpenEdit}
-              className="p-2.5 text-slate-600 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 hover:text-primary-600 hover:border-primary-200 transition-all shadow-sm"
+              className="p-2.5 text-slate-600 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 hover:text-primary-600 hover:border-primary-200 transition-all shadow-sm ml-2"
               title="編輯專案"
             >
               <Edit2 className="w-5 h-5" />
