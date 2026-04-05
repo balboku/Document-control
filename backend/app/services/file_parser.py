@@ -43,17 +43,20 @@ def extract_text_from_xlsx(file_bytes: bytes) -> str:
 
 def extract_text_from_pdf(file_bytes: bytes) -> str:
     """Extract text from a PDF file."""
-    import pymupdf
-    doc = pymupdf.open(stream=file_bytes, filetype="pdf")
-    text_parts = []
-    
-    for page_num, page in enumerate(doc):
-        page_text = page.get_text()
-        if page_text.strip():
-            text_parts.append(f"--- Page {page_num + 1} ---\n{page_text}")
-    
-    doc.close()
-    return "\n".join(text_parts)
+    try:
+        import pymupdf
+        doc = pymupdf.open(stream=file_bytes, filetype="pdf")
+        text_parts = []
+        
+        for page_num, page in enumerate(doc):
+            page_text = page.get_text()
+            if page_text.strip():
+                text_parts.append(f"--- Page {page_num + 1} ---\n{page_text}")
+        
+        doc.close()
+        return "\n".join(text_parts)
+    except Exception:
+        return ""
 
 
 def extract_text(file_bytes: bytes, file_type: str) -> Optional[str]:
@@ -62,19 +65,25 @@ def extract_text(file_bytes: bytes, file_type: str) -> Optional[str]:
     
     Args:
         file_bytes: The raw file bytes
-        file_type: File extension (docx, xlsx, pdf)
+        file_type: File extension (docx, xlsx, pdf, jpg, etc.)
     
     Returns:
         Extracted text or None if format not supported
     """
     file_type = file_type.lower().strip(".")
     
+    # Text-based formats
     extractors = {
         "docx": extract_text_from_docx,
         "xlsx": extract_text_from_xlsx,
         "xls": extract_text_from_xlsx,
         "pdf": extract_text_from_pdf,
     }
+    
+    # Image formats - we return empty string to signal that multimodal extraction is needed
+    image_formats = ["jpg", "jpeg", "png", "tiff", "webp", "bmp"]
+    if file_type in image_formats:
+        return "" # Signaling "image detected, but no text layer"
     
     extractor = extractors.get(file_type)
     if extractor:

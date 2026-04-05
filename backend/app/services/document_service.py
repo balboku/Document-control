@@ -14,7 +14,7 @@ from sqlalchemy.orm.exc import StaleDataError  # 樂觀鎖衝突時會拋出此�
 from app.models import Document, DocumentVersion, DocumentChunk, AuditLog, NumberFormat, User, Category, MDFDocumentLink
 
 from app.services.file_parser import extract_text
-from app.services.ai_service import extract_metadata, analyze_relations_with_ai
+from app.services.ai_service import extract_metadata, analyze_relations_with_ai, extract_text_multimodal
 from app.services.embedding_service import generate_embeddings, check_semantic_duplicate
 from app.utils.chunking import chunk_text
 from app.config import get_settings
@@ -80,6 +80,38 @@ async def save_uploaded_file(file_bytes: bytes, original_filename: str) -> Tuple
     return file_path, unique_filename
 
 
+async def _get_text_with_ocr(file_bytes: bytes, filename: str) -> Optional[str]:
+    """Extract text from file, falling back to Gemini OCR if needed."""
+    file_ext = os.path.splitext(filename)[1].lower().strip(".")
+    text = extract_text(file_bytes, file_ext)
+    
+    # Define formats that might need OCR
+    ocr_formats = ["pdf", "jpg", "jpeg", "png", "tiff", "webp", "bmp"]
+    
+    # If text is empty or None, and it's a format that might need OCR
+    if (not text or not text.strip()) and file_ext in ocr_formats:
+        logger.info(f"Standard text extraction failed for {filename}, attempting Gemini OCR...")
+        
+        # Map extension to mime type
+        mime_map = {
+            "pdf": "application/pdf",
+            "jpg": "image/jpeg",
+            "jpeg": "image/jpeg",
+            "png": "image/png",
+            "tiff": "image/tiff",
+            "webp": "image/webp",
+            "bmp": "image/bmp",
+        }
+        mime_type = mime_map.get(file_ext, "application/octet-stream")
+        
+        ocr_text = await extract_text_multimodal(file_bytes, mime_type)
+        if ocr_text:
+            logger.info(f"Gemini OCR successfully extracted text for {filename}")
+            return ocr_text
+    
+    return text
+
+
 async def process_upload(
     db: AsyncSession,
     file_bytes: bytes,
@@ -126,9 +158,8 @@ async def process_upload(
     # Save file
     file_path, stored_name = await save_uploaded_file(file_bytes, filename)
 
-    # Extract text
-    file_ext = os.path.splitext(filename)[1].strip(".")
-    extracted_text = extract_text(file_bytes, file_ext)
+    # Extract text (with OCR fallback)
+    extracted_text = await _get_text_with_ocr(file_bytes, filename)
 
     # Check for semantic duplicate
     semantic_duplicate = None
@@ -207,7 +238,7 @@ async def confirm_document(
     if not file_hash:
         file_hash = hashlib.sha256(file_bytes).hexdigest()
 
-    extracted_text = extract_text(file_bytes, file_ext)
+    extracted_text = await _get_text_with_ocr(file_bytes, file_id)
     file_size = os.path.getsize(file_path)
 
     # Check if binding to a reserved document
@@ -339,8 +370,7 @@ async def get_extracted_metadata(
     Used for the pre-upload AI auto-fill feature.
     """
     file_hash = hashlib.sha256(file_bytes).hexdigest()
-    file_ext = os.path.splitext(filename)[1].strip(".")
-    extracted_text = extract_text(file_bytes, file_ext)
+    extracted_text = await _get_text_with_ocr(file_bytes, filename)
     
     # Get categories for AI prompt
     result = await db.execute(
@@ -590,7 +620,7 @@ async def upload_new_version(
     # Save file
     file_path, stored_name = await save_uploaded_file(file_bytes, filename)
     file_ext = os.path.splitext(filename)[1].strip(".")
-    extracted_text = extract_text(file_bytes, file_ext)
+    extracted_text = await _get_text_with_ocr(file_bytes, filename)
     
     # Get categories for AI
     cat_result = await db.execute(select(Category).where(Category.is_active == True))
