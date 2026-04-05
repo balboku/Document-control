@@ -4,16 +4,17 @@
 
 ---
 
-## 🚀 核心優化特性
+## 🚀 核心優化特性 (V2.0)
 
 為了符合 ISO 13485 醫療器材品質管理標準，並優化巨量資料的處理速度，系統實作了以下核心優化：
 
-1.  **AI 法規合規分析 (NEW)**：透過語義搜尋技術，自動將專案文件與 ISO 13485 條款進行關聯，識別合規差距 (Gap Analysis) 並提供專業的 AI 改進建議。
-2.  **高效率向量搜尋 (HNSW)**：針對 3072 維的向量資料加入 HNSW 索引，確保在海量文件中進行語義比對時，延遲保持在毫秒級別。
-3.  **Schema 穩定性設計 (NEW)**：採用繼承式 Pydantic 模型 (DocumentResponse vs DocumentWithMdfResponse)，優化 API 序列化過程，防止非同步環境下的延遲加載 (Lazy Loading) 錯誤。
-4.  **JSONB + GIN 索引**：核心元數據（關鍵字、AI 分析結論、稽核日誌）均存儲於 `JSONB` 格式，支持極速的高級結構化檢索。
-5.  **軟刪除與完整稽核軌跡**：符合醫療器材產業規範，所有文件刪除皆為標記式軟刪除，完整保留變更歷史與 `deleted_at` 稽核點。
-6.  **游標分頁與大文本延遲載入**：在大數據量場景下提供穩定的查詢性能，避免記憶體與 I/O 的過度消耗。
+1.  **高效率向量搜尋 (HNSW + halfvec)**：針對 3072 維的 Gemini 向量，採用 `pgvector 0.7+` 的半精度轉型技術 (`halfvec`) 突破維度限制，並透過 HNSW 索引確保在海量文件中進行語義比對時，延遲保持在毫秒級別。
+2.  **RRF 混合搜尋 (Hybrid Search)**：結合 PostgreSQL `tsvector`（全文檢索）與 `pgvector`（語義搜尋），並使用 **Reciprocal Rank Fusion (RRF)** 演算法自動融合排名，確保專有名詞（如文件編號）與語意概念都能被精確檢索。
+3.  **樂觀鎖 (Optimistic Locking)**：為檔案模型新增 `row_version` 控制機制，防止非同步與多人協作時的寫入衝突 (StaleDataError)，確保設計變更 (Change Control) 的資料完整性。
+4.  **智慧分頁與計數優化**：在無過濾條件時改用 `pg_class.reltuples` 估算總數，大幅降低大數據表的全表掃描 I/O 成本。
+5.  **JSONB 效能與稽核優化**：稽核日誌 (Audit Log) 已升級為 `JSONB` 並建立 Partial Index，支持對 `details` 中特定版本號、檔名的極速檢索，並內建 ISO 13485 要求的過期日誌自動清理機制 (`purge_expired_audit_logs`)。
+6.  **版本唯一性限制 (UQ)**：實作強制性的 `(document_id, version_number)` 唯一性約束，從資料庫底層杜絕重複版本號產生的品質風險。
+7.  **軟刪除與完整稽核軌跡**：符合醫療器材產業規範，所有文件刪除皆為標記式軟刪除，完整保留變更歷史與 `deleted_at` 稽核點。
 
 ---
 
