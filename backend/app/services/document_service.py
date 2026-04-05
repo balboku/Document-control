@@ -427,7 +427,7 @@ async def get_documents(
     query = select(Document).options(
         joinedload(Document.author),
         joinedload(Document.category),
-        selectinload(Document.mdf_links).joinedload(MDFDocumentLink.project),
+        selectinload(Document.mdf_links).selectinload(MDFDocumentLink.project),
         # 延遲載入 DocumentVersion 中的大儲歘量 Text 欄位
         selectinload(Document.versions).options(
             sa_defer(DocumentVersion.extracted_text),
@@ -670,13 +670,13 @@ async def get_document_stats(db: AsyncSession) -> dict:
         .options(
             joinedload(Document.author),
             joinedload(Document.category),
-            selectinload(Document.mdf_links).joinedload(MDFDocumentLink.project)
+            selectinload(Document.mdf_links).selectinload(MDFDocumentLink.project)
         )
         .where(Document.deleted_at.is_(None))
         .order_by(desc(Document.updated_at), desc(Document.created_at))
         .limit(5)
     )
-    recent_documents = recent_docs_result.unique().scalars().all()
+    recent_documents = list(recent_docs_result.unique().scalars().all())
     
     return {
         "active_count": active_count or 0,

@@ -158,7 +158,7 @@ class DocumentResponse(BaseModel):
     reserved_at: Optional[datetime]
     created_at: datetime
     updated_at: Optional[datetime]
-    mdf_links: List["MDFLinkInfo"] = []
+    mdf_links: List["MDFLinkInfo"] = Field(default_factory=list)
 
     class Config:
         from_attributes = True

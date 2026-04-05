@@ -28,7 +28,11 @@ async def get_mdf_projects(db: AsyncSession = Depends(get_db)):
             .selectinload(Document.author),
             selectinload(MDFProject.linked_documents)
             .joinedload(MDFDocumentLink.document)
-            .selectinload(Document.category)
+            .selectinload(Document.category),
+            selectinload(MDFProject.linked_documents)
+            .joinedload(MDFDocumentLink.document)
+            .selectinload(Document.mdf_links)
+            .joinedload(MDFDocumentLink.project)
         )
         .order_by(MDFProject.created_at.desc())
     )

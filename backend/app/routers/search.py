@@ -107,8 +107,14 @@ async def semantic_search(
         LIMIT :limit
     """)
 
-    result = await db.execute(sql, params)
-    rows = result.fetchall()
+    try:
+        result = await db.execute(sql, params)
+        rows = result.fetchall()
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Semantic search query failed: {e}")
+        return SemanticSearchResponse(results=[], query=data.query)
 
     # Deduplicate by document_id, keep highest similarity
     seen = {}

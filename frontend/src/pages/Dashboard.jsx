@@ -62,79 +62,69 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         
-        {/* Section B: My Pending Tasks (Mock Data) */}
+        {/* Section B: Recent Documents (Replaced Mock Data) */}
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 flex flex-col min-h-[400px]">
+          <div className="flex justify-between items-center border-b border-slate-100 pb-4 mb-4">
+            <h3 className="text-lg font-semibold text-slate-800 flex items-center">
+              <Clock className="w-5 h-5 mr-2 text-indigo-500" />
+              最近更新文件
+            </h3>
+            <span className="text-xs text-indigo-500 bg-indigo-50 px-2 py-1 rounded font-medium">Real-time</span>
+          </div>
+
+          <div className="flex-1 overflow-auto">
+            {stats.recent_documents && stats.recent_documents.length > 0 ? (
+              <div className="space-y-3">
+                {stats.recent_documents.map(doc => (
+                  <div key={doc.id} className="p-3 border border-slate-100 rounded-xl hover:border-primary-200 hover:bg-primary-50/30 transition-all group cursor-pointer" 
+                       onClick={() => window.location.href = `/documents/${doc.id}`}>
+                    <div className="flex justify-between items-start mb-2">
+                      <h4 className="text-sm font-semibold text-slate-800 group-hover:text-primary-700 truncate pr-4">{doc.title || '無標題'}</h4>
+                      <StatusBadge status={doc.status} />
+                    </div>
+                    <div className="flex justify-between items-center text-xs text-slate-500">
+                      <div className="flex items-center">
+                        <span className="font-mono bg-slate-100 px-1.5 py-0.5 rounded mr-2">{doc.doc_number}</span>
+                        {doc.category_name && <span className="text-slate-400">{doc.category_name}</span>}
+                      </div>
+                      <div className="flex items-center text-slate-400">
+                        <Clock className="w-3 h-3 mr-1" />
+                        {doc.updated_at ? format(new Date(doc.updated_at), 'MM-dd HH:mm') : 'N/A'}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="h-full flex flex-col items-center justify-center text-slate-400 py-10">
+                <FileText className="w-10 h-10 mb-2 opacity-20" />
+                <p className="text-sm">尚無任何文件記錄</p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Section C: System Integration Status (Refined placeholder) */}
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 flex flex-col min-h-[400px]">
           <div className="flex justify-between items-center border-b border-slate-100 pb-4 mb-4">
             <h3 className="text-lg font-semibold text-slate-800 flex items-center">
               <AlertCircle className="w-5 h-5 mr-2 text-amber-500" />
-              待我處理
+              智能關聯提示
             </h3>
-            <span className="text-xs text-slate-400 bg-slate-100 px-2 py-1 rounded">Mock Data</span>
+            <span className="text-xs text-slate-400 bg-slate-100 px-2 py-1 rounded">Gemma 3 Powered</span>
           </div>
 
-          <div className="flex-1 overflow-auto">
-            <div className="space-y-3">
-              {[
-                { id: 1, title: '產品規格書(草案)', doc_number: 'SPEC-2026-001', status: 'draft', updated_at: '2026-04-05T08:30:00Z' },
-                { id: 2, title: '風險管理計畫', doc_number: 'RMP-2026-004', status: 'reviewing', updated_at: '2026-04-04T15:20:00Z' },
-                { id: 3, title: '不合格品處理單', doc_number: 'NC-2026-012', status: 'draft', updated_at: '2026-04-03T10:15:00Z' }
-              ].map(task => (
-                <div key={task.id} className="p-3 border border-slate-100 rounded-xl hover:border-primary-200 hover:bg-primary-50/30 transition-all group cursor-pointer">
-                  <div className="flex justify-between items-start mb-2">
-                    <h4 className="text-sm font-semibold text-slate-800 group-hover:text-primary-700">{task.title}</h4>
-                    <StatusBadge status={task.status} />
-                  </div>
-                  <div className="flex justify-between items-center text-xs text-slate-500">
-                    <span className="font-mono bg-slate-100 px-1.5 py-0.5 rounded">{task.doc_number}</span>
-                    <div className="flex items-center text-slate-400">
-                      <Clock className="w-3 h-3 mr-1" />
-                      {task.updated_at ? format(new Date(task.updated_at), 'MM-dd HH:mm') : 'N/A'}
-                    </div>
-                  </div>
-                </div>
-              ))}
+          <div className="flex-1 flex flex-col items-center justify-center text-center p-6">
+            <div className="w-16 h-16 bg-amber-50 rounded-full flex items-center justify-center mb-4">
+              <Plus className="w-8 h-8 text-amber-500 opacity-50" />
             </div>
-          </div>
-        </div>
-
-        {/* Section C: My Reserved Numbers (Mock Data) */}
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 flex flex-col min-h-[400px]">
-          <div className="flex justify-between items-center border-b border-slate-100 pb-4 mb-4">
-            <h3 className="text-lg font-semibold text-slate-800 flex items-center">
-              <FileText className="w-5 h-5 mr-2 text-blue-500" />
-              我的預約編號
-            </h3>
-            <span className="text-xs text-slate-400 bg-slate-100 px-2 py-1 rounded">Mock Data</span>
-          </div>
-
-          <div className="flex-1 overflow-auto">
-            <div className="space-y-3">
-              {[
-                { id: 1, doc_number: 'SOP-2026-089', title: '（測試流程文件）', category: 'SOP', reserved_at: '2026-04-05T09:00:00Z' },
-                { id: 2, doc_number: 'FORM-2026-102', title: '（新進員工報到單）', category: 'FORM', reserved_at: '2026-04-04T16:45:00Z' }
-              ].map(doc => (
-                <div key={doc.id} className="p-3 border border-slate-100 rounded-xl flex items-center hover:bg-slate-50 transition cursor-pointer">
-                  <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center mr-4 shrink-0">
-                    <span className="text-blue-600 font-bold text-sm">NO</span>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center space-x-2 mb-1">
-                      <span className="font-mono text-sm font-bold text-slate-800 truncate">{doc.doc_number}</span>
-                      <span className="text-xs px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded">{doc.category}</span>
-                    </div>
-                    <div className="text-xs text-slate-500 truncate">{doc.title}</div>
-                  </div>
-                  <div className="text-xs text-slate-400 shrink-0 ml-4 flex flex-col items-end">
-                    <span>預約於</span>
-                    <span>{doc.reserved_at ? format(new Date(doc.reserved_at), 'MM-dd') : 'N/A'}</span>
-                  </div>
-                </div>
-              ))}
-              
-              <button className="w-full mt-4 py-3 border-2 border-dashed border-slate-200 rounded-xl text-slate-500 hover:text-primary-600 hover:border-primary-300 hover:bg-primary-50 transition flex items-center justify-center text-sm font-medium">
-                <Plus className="w-4 h-4 mr-2" /> 立即預約新編號
-              </button>
-            </div>
+            <h4 className="text-slate-800 font-semibold mb-2">待開發功能：工作流程模組</h4>
+            <p className="text-sm text-slate-500 max-w-[280px]">
+              系統將根據文件屬性與 ISO 稽核規範，自動提醒您待完成的法規關聯性。目前此功能開發中。
+            </p>
+            <button className="mt-6 px-4 py-2 bg-slate-800 text-white text-xs font-semibold rounded-lg hover:bg-slate-700 transition">
+              查看開發路線圖
+            </button>
           </div>
         </div>
 
