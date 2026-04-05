@@ -8,8 +8,7 @@ export default function SettingsPage() {
   
   const tabs = [
     { id: 'users', label: '使用者管理' },
-    { id: 'categories', label: '文件類別設定' },
-    { id: 'format', label: '文件編號格式' },
+    { id: 'categories', label: '類別與編號格式設定' },
   ];
 
   return (
@@ -40,8 +39,14 @@ export default function SettingsPage() {
         {/* Settings Content */}
         <div className="flex-1 p-8 overflow-y-auto">
           {activeTab === 'users' && <UserManagement />}
-          {activeTab === 'categories' && <CategoryManagement />}
-          {activeTab === 'format' && <NumberFormatSetting />}
+          {activeTab === 'categories' && (
+            <div className="space-y-16">
+               <CategoryManagement />
+               <div className="border-t border-slate-200 pt-8">
+                  <NumberFormatSetting />
+               </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
