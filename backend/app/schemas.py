@@ -63,6 +63,7 @@ class NumberFormatUpdate(BaseModel):
     separator: Optional[str] = None
     year_format: Optional[str] = None  # YYYY or YY
     sequence_digits: Optional[int] = None
+    category_id: Optional[UUID] = None
 
 class NumberFormatResponse(BaseModel):
     id: int
@@ -72,6 +73,7 @@ class NumberFormatResponse(BaseModel):
     sequence_digits: int
     current_sequence: int
     current_year: int
+    category_id: Optional[UUID] = None
     example: Optional[str] = None
     updated_at: Optional[datetime] = None
 
@@ -201,6 +203,7 @@ class DocumentListResponse(BaseModel):
 class ReserveRequest(BaseModel):
     notes: Optional[str] = None
     actor_id: Optional[UUID] = None
+    category_id: Optional[UUID] = None
 
 class ReserveResponse(BaseModel):
     id: UUID

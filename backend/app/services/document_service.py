@@ -28,19 +28,33 @@ async def ensure_upload_dir():
     os.makedirs(settings.upload_dir, exist_ok=True)
 
 
-async def generate_doc_number(db: AsyncSession) -> str:
+async def generate_doc_number(db: AsyncSession, category_id: Optional[uuid.UUID] = None) -> str:
     """Generate the next document number based on the configured format."""
-    # Get number format settings
-    result = await db.execute(select(NumberFormat).where(NumberFormat.id == 1))
-    fmt = result.scalar_one_or_none()
+    fmt = None
+    
+    # Try to get category-specific format
+    if category_id:
+        result = await db.execute(select(NumberFormat).where(NumberFormat.category_id == category_id))
+        fmt = result.scalar_one_or_none()
+        
+    # If not found or no category, try Global Default (category_id is NULL)
+    if fmt is None:
+        result = await db.execute(select(NumberFormat).where(NumberFormat.category_id.is_(None)))
+        fmt = result.scalar_one_or_none()
+
+    # Fallback to id=1 for backward compatibility
+    if fmt is None:
+        result = await db.execute(select(NumberFormat).where(NumberFormat.id == 1))
+        fmt = result.scalar_one_or_none()
     
     current_year = datetime.now().year
     
     if fmt is None:
         fmt = NumberFormat(
-            id=1, prefix="DOC", separator="-",
+            prefix="DOC", separator="-",
             year_format="YYYY", sequence_digits=4,
-            current_sequence=0, current_year=current_year
+            current_sequence=0, current_year=current_year,
+            category_id=None
         )
         db.add(fmt)
     
@@ -252,7 +266,7 @@ async def confirm_document(
     if document is None:
         # Create new document
         if not doc_number:
-            doc_number = await generate_doc_number(db)
+            doc_number = await generate_doc_number(db, category_id=category_id)
 
         document = Document(
             doc_number=doc_number,
@@ -391,9 +405,10 @@ async def reserve_document_number(
     db: AsyncSession,
     notes: Optional[str] = None,
     actor_id: Optional[uuid.UUID] = None,
+    category_id: Optional[uuid.UUID] = None,
 ) -> Document:
     """Reserve a document number for future use."""
-    doc_number = await generate_doc_number(db)
+    doc_number = await generate_doc_number(db, category_id=category_id)
     
     document = Document(
         doc_number=doc_number,

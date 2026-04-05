@@ -149,15 +149,24 @@ async def delete_category(category_id: UUID, db: AsyncSession = Depends(get_db))
 # ============ Number Format ============
 
 @router.get("/number-format", response_model=NumberFormatResponse)
-async def get_number_format(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(NumberFormat).where(NumberFormat.id == 1))
+async def get_number_format(category_id: Optional[UUID] = None, db: AsyncSession = Depends(get_db)):
+    if category_id:
+        result = await db.execute(select(NumberFormat).where(NumberFormat.category_id == category_id))
+    else:
+        result = await db.execute(select(NumberFormat).where(NumberFormat.category_id.is_(None)))
+        
     fmt = result.scalar_one_or_none()
+    
+    if not fmt and category_id is None:
+        result = await db.execute(select(NumberFormat).where(NumberFormat.id == 1))
+        fmt = result.scalar_one_or_none()
     
     if not fmt:
         fmt = NumberFormat(
-            id=1, prefix="DOC", separator="-",
+            prefix="DOC", separator="-",
             year_format="YYYY", sequence_digits=4,
             current_sequence=0, current_year=datetime.now().year,
+            category_id=category_id
         )
         db.add(fmt)
         await db.commit()
@@ -189,11 +198,19 @@ async def update_number_format(
     fmt_data: NumberFormatUpdate,
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(NumberFormat).where(NumberFormat.id == 1))
+    if fmt_data.category_id:
+        result = await db.execute(select(NumberFormat).where(NumberFormat.category_id == fmt_data.category_id))
+    else:
+        result = await db.execute(select(NumberFormat).where(NumberFormat.category_id.is_(None)))
+
     fmt = result.scalar_one_or_none()
     
+    if not fmt and fmt_data.category_id is None:
+        result = await db.execute(select(NumberFormat).where(NumberFormat.id == 1))
+        fmt = result.scalar_one_or_none()
+        
     if not fmt:
-        fmt = NumberFormat(id=1)
+        fmt = NumberFormat(category_id=fmt_data.category_id)
         db.add(fmt)
         await db.flush()
     

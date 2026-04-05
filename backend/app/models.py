@@ -36,6 +36,7 @@ class Category(Base):
 
     # Relationships
     documents = relationship("Document", back_populates="category")
+    number_format = relationship("NumberFormat", back_populates="category", uselist=False)
 
 
 class NumberFormat(Base):
@@ -49,6 +50,10 @@ class NumberFormat(Base):
     current_sequence = Column(Integer, default=0)
     current_year = Column(Integer, default=2026)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    category_id = Column(UUID(as_uuid=True), ForeignKey("categories.id"), nullable=True, unique=True)
+
+    # Relationships
+    category = relationship("Category", back_populates="number_format")
 
 
 class Document(Base):

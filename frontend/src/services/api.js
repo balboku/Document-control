@@ -48,8 +48,9 @@ export const deleteSettingsCategory = async (id) => {
   return data;
 };
 
-export const getNumberFormat = async () => {
-  const { data } = await api.get('/settings/number-format');
+export const getNumberFormat = async (categoryId = null) => {
+  const query = categoryId ? `?category_id=${categoryId}` : '';
+  const { data } = await api.get(`/settings/number-format${query}`);
   return data;
 };
 

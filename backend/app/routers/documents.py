@@ -139,6 +139,7 @@ async def reserve_number(
         db=db,
         notes=data.notes,
         actor_id=data.actor_id,
+        category_id=data.category_id,
     )
     return ReserveResponse(
         id=document.id,
@@ -155,7 +156,7 @@ async def create_document_card(
 ):
     """Create a document card without a file."""
     # Generate document number
-    doc_number = await document_service.generate_doc_number(db)
+    doc_number = await document_service.generate_doc_number(db, category_id=data.category_id)
     
     document = Document(
         doc_number=doc_number,
