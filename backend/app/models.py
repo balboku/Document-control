@@ -202,7 +202,7 @@ class AuditLog(Base):
     # [優化2] JSON → JSONB，支援 GIN 索引與更快的 JSON 操作
     details = Column(JSONB, nullable=True)
 
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, primary_key=True, default=datetime.utcnow)
 
     # [優化-留存策略] 標記此筆日誌的法規留存截止日（NULL = 永久保留）
     # 通常由 purge_old_audit_logs() 服務函式依法規天數自動設定
