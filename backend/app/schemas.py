@@ -378,3 +378,57 @@ class MDFLinkInfo(BaseModel):
         from_attributes = True
 
 
+# ============================================================
+# 零件承認管理 (Parts Management / PPAP) Schemas
+# ============================================================
+
+class PartItemCreate(BaseModel):
+    """建立文件綁定的請求 Schema"""
+    item_code: str = Field(..., min_length=1, max_length=50, description="項目代碼，如 DRAWING / BOM / FMEA")
+    document_id: UUID
+    notes: Optional[str] = None
+
+class PartItemResponse(BaseModel):
+    """文件綁定的回應 Schema（包含文件簡要資訊）"""
+    id: UUID
+    part_id: UUID
+    item_code: str
+    document_id: UUID
+    notes: Optional[str] = None
+    created_at: datetime
+    # 關聯的文件簡要資訊
+    document: Optional[DocumentBriefResponse] = None
+
+    class Config:
+        from_attributes = True
+
+class PartProjectCreate(BaseModel):
+    """建立零件專案的請求 Schema"""
+    part_number: str = Field(..., min_length=1, max_length=100, description="零件料號，必須唯一")
+    part_name: str = Field(..., min_length=1, max_length=255, description="零件名稱")
+    version: Optional[str] = Field(None, max_length=50, description="版本號，例如 v1.0 或 Rev.A")
+    status: Optional[str] = Field("active", description="狀態：active / inactive / archived")
+    description: Optional[str] = None
+
+class PartProjectUpdate(BaseModel):
+    """更新零件專案的請求 Schema（所有欄位皆可選）"""
+    part_name: Optional[str] = Field(None, min_length=1, max_length=255)
+    version: Optional[str] = Field(None, max_length=50)
+    status: Optional[str] = None
+    description: Optional[str] = None
+
+class PartProjectResponse(BaseModel):
+    """零件專案的回應 Schema（包含所有綁定的文件項次）"""
+    id: UUID
+    part_number: str
+    part_name: str
+    version: Optional[str] = None
+    status: str
+    description: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+    # 關聯的所有文件綁定項次
+    items: List[PartItemResponse] = []
+
+    class Config:
+        from_attributes = True

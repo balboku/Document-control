@@ -259,7 +259,67 @@ class MDFDocumentLink(Base):
         Index("idx_mdf_links_document_id", "document_id"),
     )
 
+
+# ============================================================
+# 零件承認管理 (Parts Management / PPAP) Models
+# ============================================================
+
+class PartProject(Base):
+    """零件專案主表 - 管理每個零件的基本資訊"""
+    __tablename__ = "part_projects"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    # 零件料號，系統唯一識別碼，建立索引加速查詢
+    part_number = Column(String(100), unique=True, nullable=False, index=True)
+    # 零件名稱
+    part_name = Column(String(255), nullable=False)
+    # 版本號 (例如 v1.0, Rev.A)
+    version = Column(String(50), nullable=True)
+    # 狀態 (active / inactive / archived)
+    status = Column(String(20), default="active", nullable=False)
+    # 備註說明
+    description = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships - 關聯到所有綁定的文件項次
+    items = relationship("PartItem", back_populates="part_project", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        Index("idx_part_projects_status", "status"),
+        Index("idx_part_projects_created_at", "created_at"),
+    )
+
+
+class PartItem(Base):
+    """零件文件綁定表 - 記錄零件專案與各類制度文件的關聯"""
+    __tablename__ = "part_items"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    # 外鍵：對應哪個零件專案
+    part_id = Column(UUID(as_uuid=True), ForeignKey("part_projects.id"), nullable=False)
+    # 項目代碼 (例如 'DRAWING', 'BOM', 'SIP', 'CP', 'FMEA')
+    item_code = Column(String(50), nullable=False)
+    # 外鍵：對應系統內的哪份文件
+    document_id = Column(UUID(as_uuid=True), ForeignKey("documents.id"), nullable=False)
+    # 備註 (例如：此版本用於 PPAP 第三階段)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Relationships
+    part_project = relationship("PartProject", back_populates="items")
+    document = relationship("Document")
+
+    __table_args__ = (
+        Index("idx_part_items_part_id", "part_id"),
+        Index("idx_part_items_document_id", "document_id"),
+        # 同一零件同一項目代碼只能綁定一份文件
+        UniqueConstraint("part_id", "item_code", name="uq_part_item_code"),
+    )
+
+
 class RegulatoryRequirement(Base):
+
     __tablename__ = "regulatory_requirements"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

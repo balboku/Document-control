@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, FileText, Search, Settings, Library } from 'lucide-react';
+import { LayoutDashboard, FileText, Search, Settings, Library, Cog } from 'lucide-react';
 
 import clsx from 'clsx';
 
@@ -9,8 +9,10 @@ const navItems = [
   { icon: FileText, label: '文件清單', path: '/documents' },
   { icon: Search, label: '語意搜尋', path: '/search' },
   { icon: Library, label: 'MDF 管理', path: '/mdf' },
+  { icon: Cog, label: '零件承認管理', path: '/parts' },  // 新增零件 PPAP 模組
   { icon: Settings, label: '系統設定', path: '/settings' },
 ];
+
 
 
 export default function Sidebar() {

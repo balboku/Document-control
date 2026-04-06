@@ -266,5 +266,63 @@ export const triggerComplianceAnalysis = async () => {
   return data;
 };
 
+// ============================================================
+// Parts Management (PPAP) API — 零件承認管理
+// ============================================================
+
+/** 取得所有零件專案清單（附帶已綁定文件） */
+export const getParts = async () => {
+  const { data } = await api.get('/v1/parts');
+  return data;
+};
+
+/** 建立新零件專案 */
+export const createPart = async (partData) => {
+  const { data } = await api.post('/v1/parts', partData);
+  return data;
+};
+
+/** 取得單一零件專案詳細資料（含所有 item 綁定） */
+export const getPartDetail = async (partId) => {
+  const { data } = await api.get(`/v1/parts/${partId}`);
+  return data;
+};
+
+/** 更新零件專案基本資訊 */
+export const updatePart = async (partId, partData) => {
+  const { data } = await api.put(`/v1/parts/${partId}`, partData);
+  return data;
+};
+
+/** 刪除零件專案 */
+export const deletePart = async (partId) => {
+  const { data } = await api.delete(`/v1/parts/${partId}`);
+  return data;
+};
+
+/** 將文件綁定到零件的特定項目 (item_code)
+ * @param {string} partId - 零件專案 UUID
+ * @param {string} itemCode - 項目代碼，例如 'DRAWING', 'BOM', 'FMEA'
+ * @param {string} documentId - 要綁定的文件 UUID
+ * @param {string} [notes] - 備註（選填）
+ */
+export const bindPartItem = async (partId, itemCode, documentId, notes = null) => {
+  const { data } = await api.post(`/v1/parts/${partId}/items`, {
+    item_code: itemCode,
+    document_id: documentId,
+    notes,
+  });
+  return data;
+};
+
+/** 解除零件文件綁定
+ * @param {string} partId - 零件專案 UUID
+ * @param {string} itemId - PartItem UUID
+ */
+export const unbindPartItem = async (partId, itemId) => {
+  const { data } = await api.delete(`/v1/parts/${partId}/items/${itemId}`);
+  return data;
+};
+
 export default api;
 
