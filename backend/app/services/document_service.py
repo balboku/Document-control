@@ -1087,7 +1087,7 @@ async def reindex_all_documents(db: AsyncSession) -> dict:
     result = await db.execute(
         select(Document.id, Document.doc_number, Document.title)
         .outerjoin(DocumentChunk, Document.id == DocumentChunk.document_id)
-        .where(DocumentChunk.id == None)
+        .where(DocumentChunk.id.is_(None))
     )
     docs_no_chunks = result.all()
 
@@ -1102,7 +1102,7 @@ async def reindex_all_documents(db: AsyncSession) -> dict:
             # Get current version
             version_result = await db.execute(
                 select(DocumentVersion)
-                .where(DocumentVersion.document_id == doc_id, DocumentVersion.is_current == True)
+                .where(DocumentVersion.document_id == doc_id, DocumentVersion.is_current.is_(True))
             )
             current_version = version_result.scalar_one_or_none()
             if not current_version:
@@ -1208,8 +1208,6 @@ async def purge_old_audit_logs(
         dict: 包含刪除/預計刪除筆數與錯誤的統計報告
     """
     from sqlalchemy import delete as sql_delete
-
-    cutoff_date = datetime.now(timezone.utc) - timedelta(days=retain_days)
 
     # 計算符合清除條件的日誌數量
     # 條件：retention_expires_at 已設定且已過期

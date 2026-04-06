@@ -110,8 +110,8 @@ export default function PartList() {
 
   // 前端篩選
   const filtered = parts.filter(p =>
-    p.part_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    p.part_number.toLowerCase().includes(searchTerm.toLowerCase())
+    (p.part_name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (p.part_number || '').toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   return (

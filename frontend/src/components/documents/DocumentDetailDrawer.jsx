@@ -527,7 +527,7 @@ export default function DocumentDetailDrawer({ docId, onClose }) {
                             {format(new Date(log.created_at), 'yyyy/MM/dd HH:mm:ss')}
                           </span>
                           <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full
-                            ${log.action === 'STATUS_CHANGE' || log.action === 'STATUS_CHANGE' ? 'bg-blue-50 text-blue-600' : 
+                            ${log.action === 'STATUS_CHANGE' ? 'bg-blue-50 text-blue-600' : 
                               log.action === 'UPLOAD' ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-50 text-slate-500'}
                           `}>
                             {log.action}

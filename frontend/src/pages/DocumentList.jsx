@@ -360,7 +360,7 @@ export default function DocumentList() {
               </button>
               <span className="px-3 py-1 text-sm text-slate-600">第 {page} 頁</span>
               <button 
-                onClick={() => setPage(p => p + 1)} disabled={documents.length < 10}
+                onClick={() => setPage(p => p + 1)} disabled={page >= Math.ceil(total / 10)}
                 className="px-3 py-1 bg-white border border-slate-200 rounded shadow-sm text-sm disabled:opacity-50"
               >
                 下一頁

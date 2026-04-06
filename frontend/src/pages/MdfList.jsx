@@ -109,8 +109,8 @@ export default function MdfList() {
   };
 
   const filteredProjects = projects.filter(p => 
-    p.product_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    p.project_no.toLowerCase().includes(searchTerm.toLowerCase())
+    (p.product_name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (p.project_no || '').toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   return (
