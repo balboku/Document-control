@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Plus, Cog, Search, ChevronRight, X, Edit2, Trash2 } from 'lucide-react';
 import { getParts, createPart, updatePart, deletePart } from '../services/api';
 import LoadingSpinner from '../components/common/LoadingSpinner';
+import { useListStateCache } from '../hooks/useListStateCache';
 
 // 狀態標籤的顏色對應
 const STATUS_COLORS = {
@@ -23,7 +24,7 @@ export default function PartList() {
   const [showModal, setShowModal] = useState(false);
   const [modalMode, setModalMode] = useState('create'); // 'create' | 'edit'
   const [currentPartId, setCurrentPartId] = useState(null);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useListStateCache('part-list-state', '');
 
   // 表單資料
   const [formData, setFormData] = useState({

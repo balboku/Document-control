@@ -12,7 +12,7 @@ import {
   Loader2, GitMerge, ChevronRight, Edit3, Save, Upload, AlertCircle 
 } from 'lucide-react';
 
-export default function DocumentDetailModal({ docId, onClose }) {
+export default function DocumentDetailDrawer({ docId, onClose }) {
   const [doc, setDoc] = useState(null);
   const [loading, setLoading] = useState(true);
   
@@ -165,8 +165,9 @@ export default function DocumentDetailModal({ docId, onClose }) {
   if (!doc) return null;
 
   return (
-    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 fade-in">
-      <div className="bg-white w-full max-w-5xl rounded-3xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden slide-in-bottom">
+    <div className="fixed inset-0 z-50 flex justify-end">
+      <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm fade-in" onClick={onClose} />
+      <div className="relative w-full max-w-4xl bg-white h-full shadow-2xl flex flex-col animate-in slide-in-from-right duration-300 overflow-hidden">
         
         {/* Header */}
         <div className="flex justify-between items-start p-8 border-b border-slate-100 bg-white sticky top-0 z-10">

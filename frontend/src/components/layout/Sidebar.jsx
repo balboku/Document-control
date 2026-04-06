@@ -29,6 +29,7 @@ export default function Sidebar() {
             <li key={item.path}>
               <NavLink
                 to={item.path}
+                state={{ clearListCache: true }}
                 className={({ isActive }) =>
                   clsx(
                     'flex items-center px-4 py-3 rounded-xl transition-colors duration-200',

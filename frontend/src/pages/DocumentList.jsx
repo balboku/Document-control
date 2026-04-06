@@ -5,13 +5,14 @@ import {
 } from '../services/api';
 
 import DocumentUpload from '../components/documents/DocumentUpload';
-import DocumentDetailModal from '../components/documents/DocumentDetailModal';
+import DocumentDetailDrawer from '../components/documents/DocumentDetailDrawer';
 import StatusBadge from '../components/common/StatusBadge';
 import FileIcon from '../components/common/FileIcon';
 import LoadingSpinner from '../components/common/LoadingSpinner';
 import { format } from 'date-fns';
 import { Filter, Search, Download, Plus, Layers, User, MoreVertical, FileText, Trash2, CheckSquare, Loader2, AlertCircle } from 'lucide-react';
 import { batchDownload, batchUpdateStatus } from '../services/api';
+import { useSearchParams } from 'react-router-dom';
 
 
 export default function DocumentList() {
@@ -20,7 +21,18 @@ export default function DocumentList() {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [showUpload, setShowUpload] = useState(false);
-  const [selectedDocId, setSelectedDocId] = useState(null);
+  
+  const [searchParams, setSearchParams] = useSearchParams();
+  const selectedDocId = searchParams.get('docId');
+
+  const setSelectedDocId = (id) => {
+    if (id) {
+      searchParams.set('docId', id);
+    } else {
+      searchParams.delete('docId');
+    }
+    setSearchParams(searchParams, { replace: true });
+  };
   
   // Batch processing
   const [selectedIds, setSelectedIds] = useState(new Set());
@@ -430,7 +442,7 @@ export default function DocumentList() {
       )}
 
       {selectedDocId && (
-        <DocumentDetailModal
+        <DocumentDetailDrawer
           docId={selectedDocId}
           onClose={() => setSelectedDocId(null)}
         />

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Plus, Library, Search, ChevronRight, X, Edit2, Trash2, Copy } from 'lucide-react';
 import { getMdfProjects, createMdfProject, updateMdfProject, deleteMdfProject, duplicateMdfProject } from '../services/api';
 import LoadingSpinner from '../components/common/LoadingSpinner';
+import { useListStateCache } from '../hooks/useListStateCache';
 
 export default function MdfList() {
   const navigate = useNavigate();
@@ -11,7 +12,7 @@ export default function MdfList() {
   const [showModal, setShowModal] = useState(false);
   const [modalMode, setModalMode] = useState('create'); // 'create' or 'edit'
   const [currentProjectId, setCurrentProjectId] = useState(null);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useListStateCache('mdf-list-state', '');
   
   // Project Form
   const [formData, setFormData] = useState({
