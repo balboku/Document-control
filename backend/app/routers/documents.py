@@ -16,7 +16,7 @@ from app.database import get_db
 from app.models import Document, DocumentVersion, AuditLog, User
 from app.schemas import (
     DocumentUploadResponse, DocumentConfirm, DocumentUpdate,
-    DocumentResponse, DocumentDetailResponse, DocumentVersionResponse,
+    DocumentResponse, DocumentWithMdfResponse, DocumentDetailResponse, DocumentVersionResponse,
     DocumentListResponse, ReserveRequest, ReserveResponse,
     AuditLogResponse, BatchDownloadRequest, BatchStatusUpdateRequest,
     DocumentStatsResponse, RelationAnalysisResponse, DocumentHistoryResponse,
@@ -245,7 +245,7 @@ async def get_documents(
 
     items = []
     for doc in documents:
-        items.append(DocumentResponse(
+        items.append(DocumentWithMdfResponse(
             id=doc.id,
             doc_number=doc.doc_number,
             title=doc.title,

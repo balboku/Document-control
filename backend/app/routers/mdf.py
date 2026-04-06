@@ -39,14 +39,18 @@ async def get_mdf_projects(db: AsyncSession = Depends(get_db)):
     result = await db.execute(stmt)
     projects = result.unique().scalars().all()
     
-    # Manual mapping for author/category names in DocumentBriefResponse
+    response_projects = []
     for p in projects:
+        # Manual mapping for author/category names in DocumentBriefResponse
         for link in p.linked_documents:
             if link.document:
                 link.document.author_name = link.document.author.name if link.document.author else None
                 link.document.category_name = link.document.category.name if link.document.category else None
-                
-    return projects
+        
+        # Build Pydantic model directly to bypass eager/lazy validation scanning
+        response_projects.append(MDFProjectResponse.model_validate(p, from_attributes=True))
+
+    return response_projects
 
 
 
@@ -90,7 +94,10 @@ async def get_mdf_project_detail(project_id: UUID, db: AsyncSession = Depends(ge
             .selectinload(Document.author),
             selectinload(MDFProject.linked_documents)
             .joinedload(MDFDocumentLink.document)
-            .selectinload(Document.category)
+            .selectinload(Document.category),
+            selectinload(MDFProject.linked_documents)
+            .joinedload(MDFDocumentLink.document)
+            .selectinload(Document.mdf_links)
         )
         .where(MDFProject.id == project_id)
     )

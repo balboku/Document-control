@@ -784,13 +784,32 @@ async def get_document_stats(db: AsyncSession) -> dict:
         .limit(5)
     )
     recent_documents = list(recent_docs_result.unique().scalars().all())
+    recent_docs_dicts = []
+    for d in recent_documents:
+        recent_docs_dicts.append({
+            "id": d.id,
+            "doc_number": d.doc_number,
+            "title": d.title,
+            "status": d.status,
+            "ai_processing_status": d.ai_processing_status,
+            "current_version": d.current_version,
+            "author_id": d.author_id,
+            "author_name": d.author.name if d.author else None,
+            "category_id": d.category_id,
+            "category_name": d.category.name if d.category else None,
+            "keywords": d.keywords,
+            "notes": d.notes,
+            "reserved_at": d.reserved_at,
+            "created_at": d.created_at,
+            "updated_at": d.updated_at,
+        })
     
     return {
         "active_count": active_count or 0,
         "draft_count": draft_count or 0,
         "reserved_count": reserved_count or 0,
         "today_upload_count": today_upload_count or 0,
-        "recent_documents": recent_documents
+        "recent_documents": recent_docs_dicts
     }
 
 
