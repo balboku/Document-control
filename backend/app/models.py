@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from sqlalchemy import (
     Column, String, Text, Boolean, Integer, BigInteger,
-    DateTime, ForeignKey, Index, Computed, UniqueConstraint, text
+    DateTime, ForeignKey, Index, Computed, UniqueConstraint, text, and_
 )
 from sqlalchemy.dialects.postgresql import UUID, JSONB, TSVECTOR
 from sqlalchemy.orm import relationship
@@ -13,7 +13,7 @@ from app.database import Base
 class User(Base):
     __tablename__ = "users"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     name = Column(String(100), nullable=False)
     department = Column(String(100), nullable=True)
     is_active = Column(Boolean, default=True)
@@ -27,7 +27,7 @@ class User(Base):
 class Category(Base):
     __tablename__ = "categories"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     name = Column(String(100), unique=True, nullable=False)
     description = Column(String(255), nullable=True)
     is_active = Column(Boolean, default=True)
@@ -59,14 +59,14 @@ class NumberFormat(Base):
 class Document(Base):
     __tablename__ = "documents"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     doc_number = Column(String(50), unique=True, nullable=False, index=True)
     title = Column(String(500), nullable=True)
     status = Column(String(20), default="draft")  # reserved, draft, active, archived
     ai_processing_status = Column(String(20), default="completed")  # pending, completed, failed
     current_version = Column(String(20), nullable=True)
-    author_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
-    category_id = Column(UUID(as_uuid=True), ForeignKey("categories.id"), nullable=True)
+    author_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True, index=True)
+    category_id = Column(UUID(as_uuid=True), ForeignKey("categories.id"), nullable=True, index=True)
 
     # [優化2] JSON → JSONB，支援 GIN 索引與更快的 JSON 操作
     keywords = Column(JSONB, nullable=True)  # List of keywords
@@ -97,7 +97,13 @@ class Document(Base):
     # Relationships
     author = relationship("User", back_populates="authored_documents", foreign_keys=[author_id])
     category = relationship("Category", back_populates="documents")
-    versions = relationship("DocumentVersion", back_populates="document", order_by="DocumentVersion.uploaded_at.desc()", cascade="all, delete-orphan")
+    versions = relationship(
+        "DocumentVersion", 
+        back_populates="document", 
+        order_by="DocumentVersion.uploaded_at.desc()",
+        primaryjoin="and_(Document.id==DocumentVersion.document_id, DocumentVersion.deleted_at.is_(None))",
+        cascade="all, delete-orphan"
+    )
     audit_logs = relationship("AuditLog", back_populates="document", order_by="AuditLog.created_at.desc()", cascade="all, delete-orphan")
     mdf_links = relationship("MDFDocumentLink", back_populates="document", cascade="all, delete-orphan")
 
@@ -118,7 +124,7 @@ class Document(Base):
 class DocumentVersion(Base):
     __tablename__ = "document_versions"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     document_id = Column(UUID(as_uuid=True), ForeignKey("documents.id"), nullable=False)
     version_number = Column(String(20), nullable=False)
     file_name = Column(String(500), nullable=False)
@@ -134,7 +140,7 @@ class DocumentVersion(Base):
     ai_analysis_text = Column(Text, nullable=True)
     ai_processing_status = Column(String(20), default="completed")  # pending, completed, failed
     is_current = Column(Boolean, default=True)
-    uploaded_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    uploaded_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True, index=True)
     uploaded_at = Column(DateTime, default=datetime.utcnow)
 
     # [優化4] 軟刪除欄位
@@ -158,7 +164,7 @@ class DocumentVersion(Base):
 class DocumentChunk(Base):
     __tablename__ = "document_chunks"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     version_id = Column(UUID(as_uuid=True), ForeignKey("document_versions.id"), nullable=False)
     document_id = Column(UUID(as_uuid=True), ForeignKey("documents.id"), nullable=False)
     chunk_index = Column(Integer, nullable=False)
@@ -187,7 +193,7 @@ class DocumentChunk(Base):
 class AuditLog(Base):
     __tablename__ = "audit_logs"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     document_id = Column(UUID(as_uuid=True), ForeignKey("documents.id"), nullable=True)
     action = Column(String(50), nullable=False)  # CREATE, UPLOAD, UPDATE, DOWNLOAD, RESERVE, ARCHIVE
     actor_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
@@ -224,13 +230,14 @@ class AuditLog(Base):
             text("(details->>'version')"),
             postgresql_where=text("details ? 'version'"),
         ),
+        {"postgresql_partition_by": "RANGE (created_at)"}
     )
 
 
 class MDFProject(Base):
     __tablename__ = "mdf_projects"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     product_name = Column(String(255), nullable=False)
     project_no = Column(String(100), unique=True, nullable=False, index=True)
     classification = Column(String(50), nullable=True)
@@ -244,7 +251,7 @@ class MDFProject(Base):
 class MDFDocumentLink(Base):
     __tablename__ = "mdf_document_links"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     mdf_project_id = Column(UUID(as_uuid=True), ForeignKey("mdf_projects.id"), nullable=False)
     item_no = Column(Integer, nullable=False)  # Item 1~18
     document_id = Column(UUID(as_uuid=True), ForeignKey("documents.id"), nullable=False)
@@ -268,7 +275,7 @@ class PartProject(Base):
     """零件專案主表 - 管理每個零件的基本資訊"""
     __tablename__ = "part_projects"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     # 零件料號，系統唯一識別碼，建立索引加速查詢
     part_number = Column(String(100), unique=True, nullable=False, index=True)
     # 零件名稱
@@ -295,7 +302,7 @@ class PartItem(Base):
     """零件文件綁定表 - 記錄零件專案與各類制度文件的關聯"""
     __tablename__ = "part_items"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     # 外鍵：對應哪個零件專案
     part_id = Column(UUID(as_uuid=True), ForeignKey("part_projects.id"), nullable=False)
     # 項目代碼 (例如 'DRAWING', 'BOM', 'SIP', 'CP', 'FMEA')
@@ -322,7 +329,7 @@ class RegulatoryRequirement(Base):
 
     __tablename__ = "regulatory_requirements"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     standard_name = Column(String(100), nullable=False)  # e.g., "ISO 13485:2016"
     clause_no = Column(String(50), nullable=False)      # e.g., "7.3.3"
     title = Column(String(255), nullable=True)
@@ -338,7 +345,7 @@ class RegulatoryRequirement(Base):
 class ComplianceInsight(Base):
     __tablename__ = "compliance_insights"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     type = Column(String(50), nullable=False)  # "MISSING_DOC", "RELEVANT_CLAUSE", "AUDIT_TIP"
     title = Column(String(200), nullable=False)
     content = Column(Text, nullable=False)
