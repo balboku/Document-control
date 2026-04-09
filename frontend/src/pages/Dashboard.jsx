@@ -1,5 +1,11 @@
-import React, { useState, useEffect } from 'react';
-import { getStats, getComplianceInsights, triggerComplianceAnalysis } from '../services/api';
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  getStats,
+  getComplianceInsights,
+  triggerComplianceAnalysis,
+  getApiErrorMessage,
+  isRequestCanceled,
+} from '../services/api';
 import StatusBadge from '../components/common/StatusBadge';
 import FileIcon from '../components/common/FileIcon';
 import LoadingSpinner from '../components/common/LoadingSpinner';
@@ -11,29 +17,64 @@ export default function Dashboard() {
   const [insights, setInsights] = useState([]);
   const [loading, setLoading] = useState(true);
   const [insightsLoading, setInsightsLoading] = useState(false);
+  const [statsError, setStatsError] = useState('');
+  const [insightsError, setInsightsError] = useState('');
+  const requestRef = useRef(null);
 
   useEffect(() => {
     fetchAllData();
   }, []);
 
+  useEffect(() => {
+    return () => {
+      requestRef.current?.abort();
+    };
+  }, []);
+
   const fetchAllData = async () => {
+    requestRef.current?.abort();
+    const controller = new AbortController();
+    requestRef.current = controller;
+
     setLoading(true);
+    setStatsError('');
+    setInsightsError('');
+
     try {
-      const [statsData, insightsData] = await Promise.all([
-        getStats(),
-        getComplianceInsights()
+      const [statsResult, insightsResult] = await Promise.allSettled([
+        getStats({ signal: controller.signal }),
+        getComplianceInsights(false, { signal: controller.signal }),
       ]);
-      setStats(statsData);
-      setInsights(insightsData || []);
-    } catch (error) {
-      console.error('Failed to fetch dashboard data', error);
+
+      if (requestRef.current !== controller) {
+        return;
+      }
+
+      if (statsResult.status === 'fulfilled') {
+        setStats(statsResult.value);
+      } else if (!isRequestCanceled(statsResult.reason)) {
+        console.error('Failed to fetch dashboard stats', statsResult.reason);
+        setStats(null);
+        setStatsError(getApiErrorMessage(statsResult.reason, '系統統計暫時無法載入。'));
+      }
+
+      if (insightsResult.status === 'fulfilled') {
+        setInsights(insightsResult.value || []);
+      } else if (!isRequestCanceled(insightsResult.reason)) {
+        console.error('Failed to fetch compliance insights', insightsResult.reason);
+        setInsights([]);
+        setInsightsError(getApiErrorMessage(insightsResult.reason, '法規提示暫時無法載入。'));
+      }
     } finally {
-      setLoading(false);
+      if (requestRef.current === controller) {
+        setLoading(false);
+      }
     }
   };
 
   const handleRefreshInsights = async () => {
     setInsightsLoading(true);
+    setInsightsError('');
     try {
       const data = await triggerComplianceAnalysis();
       if (data.status === 'success') {
@@ -41,6 +82,7 @@ export default function Dashboard() {
       }
     } catch (error) {
       console.error('Failed to analyze compliance', error);
+      setInsightsError(getApiErrorMessage(error, '法規分析暫時無法執行。'));
     } finally {
       setInsightsLoading(false);
     }
@@ -59,6 +101,15 @@ export default function Dashboard() {
       <div className="flex flex-col items-center justify-center p-20 text-slate-500">
         <AlertCircle className="w-12 h-12 text-slate-300 mb-4" />
         <p className="text-lg font-medium">無法載入系統資料</p>
+        {statsError && (
+          <p className="text-sm text-slate-400 mt-2 text-center max-w-md">{statsError}</p>
+        )}
+        <button
+          onClick={fetchAllData}
+          className="mt-6 px-5 py-2.5 rounded-xl bg-slate-900 text-white text-sm font-bold hover:bg-slate-800 transition-colors"
+        >
+          重新載入
+        </button>
       </div>
     );
   }
@@ -147,6 +198,12 @@ export default function Dashboard() {
               <div className="h-full flex flex-col items-center justify-center text-slate-400">
                 <LoadingSpinner size="md" />
                 <p className="text-xs mt-4 animate-pulse">Gemma 3 正在分析合規缺漏...</p>
+              </div>
+            ) : insightsError ? (
+              <div className="h-full flex flex-col items-center justify-center text-center text-slate-400 py-10 px-4">
+                <AlertCircle className="w-10 h-10 mb-3 text-rose-300" />
+                <p className="text-sm font-medium text-slate-600">法規提示暫時無法載入</p>
+                <p className="text-xs mt-2 max-w-sm">{insightsError}</p>
               </div>
             ) : insights.length > 0 ? (
               <div className="space-y-4">
