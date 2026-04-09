@@ -1,11 +1,60 @@
 import axios from 'axios';
 
+const DEFAULT_API_TIMEOUT_MS = 60000;
+
 const api = axios.create({
   baseURL: '/api',
   headers: {
     'Content-Type': 'application/json',
   },
+  timeout: DEFAULT_API_TIMEOUT_MS,
 });
+
+const buildRequestConfig = (options = {}) => {
+  const config = {};
+
+  if (options.signal) {
+    config.signal = options.signal;
+  }
+
+  if (options.timeout != null) {
+    config.timeout = options.timeout;
+  }
+
+  return config;
+};
+
+export const isRequestCanceled = (error) =>
+  axios.isCancel(error) ||
+  error?.code === 'ERR_CANCELED' ||
+  error?.name === 'CanceledError';
+
+export const getApiErrorMessage = (error, fallback = '請稍後再試。') => {
+  if (isRequestCanceled(error)) {
+    return '請求已取消';
+  }
+
+  if (error?.code === 'ECONNABORTED') {
+    return '連線逾時，請稍後再試。';
+  }
+
+  const detail = error?.response?.data?.detail;
+  if (typeof detail === 'string' && detail.trim()) {
+    return detail;
+  }
+
+  if (Array.isArray(detail) && detail.length > 0) {
+    return detail
+      .map((item) => item?.msg || JSON.stringify(item))
+      .join('，');
+  }
+
+  if (typeof error?.message === 'string' && error.message.trim()) {
+    return error.message;
+  }
+
+  return fallback;
+};
 
 // Settings API
 export const getSettingsUsers = async (activeOnly = false) => {
@@ -93,8 +142,11 @@ export const reserveDocumentNumber = async (reserveData) => {
   return data;
 };
 
-export const getDocuments = async (params) => {
-  const { data } = await api.get('/documents', { params });
+export const getDocuments = async (params, options = {}) => {
+  const { data } = await api.get('/documents', {
+    params,
+    ...buildRequestConfig(options),
+  });
   return data;
 };
 
@@ -143,29 +195,44 @@ export const retryAiProcessing = async (docId, versionId) => {
   return data;
 };
 
-export const getStats = async () => {
-    const res = await api.get('/documents/stats');
+export const getStats = async (options = {}) => {
+    const res = await api.get('/documents/stats', buildRequestConfig(options));
     return res.data;
 };
 
-export const analyzeRelations = async (doc_id, forceRefresh = false) => {
-    const res = await api.post(`/documents/${doc_id}/analyze-relations?force_refresh=${forceRefresh}`);
+export const analyzeRelations = async (doc_id, forceRefresh = false, options = {}) => {
+    const res = await api.post(
+      `/documents/${doc_id}/analyze-relations?force_refresh=${forceRefresh}`,
+      undefined,
+      buildRequestConfig(options)
+    );
     return res.data;
 };
 
 // Search API
-export const searchDocuments = async (params) => {
-  const { data } = await api.get('/search', { params });
+export const searchDocuments = async (params, options = {}) => {
+  const { data } = await api.get('/search', {
+    params,
+    ...buildRequestConfig(options),
+  });
   return data;
 };
 
-export const semanticSearch = async (queryData) => {
-  const { data } = await api.post('/search/semantic', queryData);
+export const semanticSearch = async (queryData, options = {}) => {
+  const { data } = await api.post(
+    '/search/semantic',
+    queryData,
+    buildRequestConfig(options)
+  );
   return data;
 };
 
-export const hybridSearch = async (queryData) => {
-  const { data } = await api.post('/search/hybrid', queryData);
+export const hybridSearch = async (queryData, options = {}) => {
+  const { data } = await api.post(
+    '/search/hybrid',
+    queryData,
+    buildRequestConfig(options)
+  );
   return data;
 };
 
@@ -215,8 +282,8 @@ export const exportMdfChecklist = async (projectId) => {
 };
 
 // MDF API
-export const getMdfProjects = async () => {
-  const { data } = await api.get('/mdf');
+export const getMdfProjects = async (options = {}) => {
+  const { data } = await api.get('/mdf', buildRequestConfig(options));
   return data;
 };
 
@@ -240,8 +307,8 @@ export const duplicateMdfProject = async (id) => {
   return data;
 };
 
-export const getMdfProject = async (id) => {
-  const { data } = await api.get(`/mdf/${id}`);
+export const getMdfProject = async (id, options = {}) => {
+  const { data } = await api.get(`/mdf/${id}`, buildRequestConfig(options));
   return data;
 };
 
@@ -256,8 +323,11 @@ export const unlinkDocumentFromMdf = async (linkId) => {
 };
 
 // Compliance API
-export const getComplianceInsights = async (forceRefresh = false) => {
-  const { data } = await api.get(`/compliance/insights?force_refresh=${forceRefresh}`);
+export const getComplianceInsights = async (forceRefresh = false, options = {}) => {
+  const { data } = await api.get(
+    `/compliance/insights?force_refresh=${forceRefresh}`,
+    buildRequestConfig(options)
+  );
   return data;
 };
 
@@ -271,8 +341,8 @@ export const triggerComplianceAnalysis = async () => {
 // ============================================================
 
 /** 取得所有零件專案清單（附帶已綁定文件） */
-export const getParts = async () => {
-  const { data } = await api.get('/v1/parts');
+export const getParts = async (options = {}) => {
+  const { data } = await api.get('/v1/parts', buildRequestConfig(options));
   return data;
 };
 
@@ -283,8 +353,8 @@ export const createPart = async (partData) => {
 };
 
 /** 取得單一零件專案詳細資料（含所有 item 綁定） */
-export const getPartDetail = async (partId) => {
-  const { data } = await api.get(`/v1/parts/${partId}`);
+export const getPartDetail = async (partId, options = {}) => {
+  const { data } = await api.get(`/v1/parts/${partId}`, buildRequestConfig(options));
   return data;
 };
 
@@ -325,4 +395,3 @@ export const unbindPartItem = async (partId, itemId) => {
 };
 
 export default api;
-

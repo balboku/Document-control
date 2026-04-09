@@ -1,5 +1,11 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { semanticSearch, hybridSearch, getSettingsCategories } from '../services/api';
+import {
+  semanticSearch,
+  hybridSearch,
+  getSettingsCategories,
+  getApiErrorMessage,
+  isRequestCanceled,
+} from '../services/api';
 import StatusBadge from '../components/common/StatusBadge';
 import {
   Search, Sparkles, AlertCircle, Zap, FileText,
@@ -242,8 +248,10 @@ export default function SearchPage() {
   const [loading, setLoading]       = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
   const [categories, setCategories] = useState([]);
+  const [searchError, setSearchError] = useState('');
 
   const inputRef = useRef(null);
+  const requestRef = useRef({ controller: null, requestId: 0 });
 
   useEffect(() => {
     getSettingsCategories()
@@ -251,12 +259,24 @@ export default function SearchPage() {
       .catch(console.error);
   }, []);
 
+  useEffect(() => {
+    return () => {
+      requestRef.current.controller?.abort();
+    };
+  }, []);
+
   /* ── Core search executor ── */
   const executeSearch = useCallback(async (searchQuery, pageNum, searchMode) => {
     if (!searchQuery.trim()) return;
 
+    requestRef.current.controller?.abort();
+    const controller = new AbortController();
+    const requestId = requestRef.current.requestId + 1;
+    requestRef.current = { controller, requestId };
+
     setLoading(true);
     setHasSearched(true);
+    setSearchError('');
 
     const skip = (pageNum - 1) * PAGE_SIZE;
     const payload = {
@@ -269,17 +289,34 @@ export default function SearchPage() {
 
     try {
       const fn = searchMode === 'hybrid' ? hybridSearch : semanticSearch;
-      const data = await fn(payload);
+      const data = await fn(payload, { signal: controller.signal });
+
+      if (requestRef.current.requestId !== requestId) {
+        return;
+      }
+
       setResults(data.results ?? []);
       setTotalCount(data.total_count ?? data.results?.length ?? 0);
       setTotalPages(data.total_pages ?? 1);
       setActiveQuery(searchQuery);
     } catch (err) {
+      if (isRequestCanceled(err)) {
+        return;
+      }
+
+      if (requestRef.current.requestId !== requestId) {
+        return;
+      }
+
       console.error('Search error', err);
       setResults([]);
       setTotalCount(0);
+      setTotalPages(1);
+      setSearchError(getApiErrorMessage(err, '搜尋失敗，請稍後再試。'));
     } finally {
-      setLoading(false);
+      if (requestRef.current.requestId === requestId) {
+        setLoading(false);
+      }
     }
   }, [categoryId, status]);
 
@@ -440,6 +477,18 @@ export default function SearchPage() {
         {/* Body */}
         {loading ? (
           <SearchingState />
+        ) : searchError ? (
+          <div className="flex flex-col items-center justify-center py-24 px-6 text-center">
+            <AlertCircle className="w-14 h-14 text-red-300 mb-5" />
+            <p className="text-lg font-bold text-slate-700">搜尋暫時失敗</p>
+            <p className="text-sm text-slate-500 mt-2 max-w-md">{searchError}</p>
+            <button
+              onClick={() => executeSearch(activeQuery || query, page, mode)}
+              className="mt-6 px-5 py-2.5 rounded-xl bg-slate-900 text-white text-sm font-bold hover:bg-slate-800 transition-colors"
+            >
+              重新搜尋
+            </button>
+          </div>
         ) : results.length > 0 ? (
           <>
             <div className="divide-y divide-slate-100">

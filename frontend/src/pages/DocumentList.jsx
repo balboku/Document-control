@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   getDocuments, exportDocumentListCSV, exportDocumentListExcel, 
-  getSettingsUsers, getSettingsCategories, deleteDocument 
+  getSettingsUsers, getSettingsCategories, deleteDocument,
+  getApiErrorMessage, isRequestCanceled
 } from '../services/api';
 
 import DocumentUpload from '../components/documents/DocumentUpload';
@@ -20,7 +21,9 @@ export default function DocumentList() {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [showUpload, setShowUpload] = useState(false);
+  const requestRef = useRef({ controller: null, requestId: 0 });
   
   const [searchParams, setSearchParams] = useSearchParams();
   const selectedDocId = searchParams.get('docId');
@@ -55,6 +58,12 @@ export default function DocumentList() {
   }, []);
 
   useEffect(() => {
+    return () => {
+      requestRef.current.controller?.abort();
+    };
+  }, []);
+
+  useEffect(() => {
     fetchData();
     // Clear selection when filters change
     setSelectedIds(new Set());
@@ -69,7 +78,14 @@ export default function DocumentList() {
   };
 
   const fetchData = async () => {
+    requestRef.current.controller?.abort();
+    const controller = new AbortController();
+    const requestId = requestRef.current.requestId + 1;
+    requestRef.current = { controller, requestId };
+
     setLoading(true);
+    setLoadError('');
+
     try {
       const data = await getDocuments({
         page, 
@@ -78,13 +94,33 @@ export default function DocumentList() {
         status: statusFilter || undefined,
         author_id: authorFilter || undefined,
         category_id: categoryFilter || undefined
+      }, {
+        signal: controller.signal
       });
+
+      if (requestRef.current.requestId !== requestId) {
+        return;
+      }
+
       setDocuments(data.items);
       setTotal(data.total);
     } catch (error) {
+      if (isRequestCanceled(error)) {
+        return;
+      }
+
+      if (requestRef.current.requestId !== requestId) {
+        return;
+      }
+
       console.error('Fetch docs error', error);
+      setDocuments([]);
+      setTotal(0);
+      setLoadError(getApiErrorMessage(error, '文件清單載入失敗，請稍後再試。'));
     } finally {
-      setLoading(false);
+      if (requestRef.current.requestId === requestId) {
+        setLoading(false);
+      }
     }
   };
 
@@ -238,6 +274,18 @@ export default function DocumentList() {
               <LoadingSpinner />
             </div>
           )}
+
+          {loadError && !loading && (
+            <div className="mx-6 mt-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 flex items-center justify-between gap-4">
+              <span>{loadError}</span>
+              <button
+                onClick={fetchData}
+                className="shrink-0 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50 transition"
+              >
+                重新載入
+              </button>
+            </div>
+          )}
           
           <div className="flex-1 overflow-auto">
             <table className="min-w-full divide-y divide-slate-200">
@@ -259,7 +307,13 @@ export default function DocumentList() {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-slate-100">
-                {documents.length === 0 && !loading ? (
+                {loadError && !loading ? (
+                  <tr>
+                    <td colSpan="6" className="px-6 py-12 text-center text-red-500 text-sm">
+                      文件清單暫時無法載入，請稍後再試。
+                    </td>
+                  </tr>
+                ) : documents.length === 0 && !loading ? (
                   <tr>
                     <td colSpan="6" className="px-6 py-12 text-center text-slate-500 text-sm">
                       <div className="flex flex-col items-center">
