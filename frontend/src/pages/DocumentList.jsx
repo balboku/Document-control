@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   getDocuments, exportDocumentListCSV, exportDocumentListExcel, 
   getSettingsUsers, getSettingsCategories, deleteDocument,
-  getApiErrorMessage, isRequestCanceled
+  getApiErrorMessage, isRequestCanceled, reserveDocumentNumber,
+  batchDownload, batchUpdateStatus
 } from '../services/api';
 
 import DocumentUpload from '../components/documents/DocumentUpload';
@@ -11,10 +12,13 @@ import StatusBadge from '../components/common/StatusBadge';
 import FileIcon from '../components/common/FileIcon';
 import LoadingSpinner from '../components/common/LoadingSpinner';
 import { format } from 'date-fns';
-import { Filter, Search, Download, Plus, Layers, User, MoreVertical, FileText, Trash2, CheckSquare, Loader2, AlertCircle } from 'lucide-react';
-import { batchDownload, batchUpdateStatus } from '../services/api';
+import { Filter, Search, Download, Plus, Layers, User, MoreVertical, FileText, Trash2, CheckSquare, Loader2, AlertCircle, Hash, X } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 
+const createInitialReserveForm = () => ({
+  category_id: '',
+  notes: '',
+});
 
 export default function DocumentList() {
   const [documents, setDocuments] = useState([]);
@@ -42,6 +46,12 @@ export default function DocumentList() {
   const [showBatchStatusModal, setShowBatchStatusModal] = useState(false);
   const [batchStatusValue, setBatchStatusValue] = useState('');
   const [batchProcessing, setBatchProcessing] = useState(false);
+
+  // Reserve document number
+  const [showReserveModal, setShowReserveModal] = useState(false);
+  const [reserveForm, setReserveForm] = useState(createInitialReserveForm);
+  const [reserveError, setReserveError] = useState('');
+  const [isReserving, setIsReserving] = useState(false);
   
   // Filters
   const [searchTerm, setSearchTerm] = useState('');
@@ -187,7 +197,63 @@ export default function DocumentList() {
     } finally {
       setBatchProcessing(false);
     }
-  };  return (
+  };
+
+  const resetReserveModal = () => {
+    setReserveForm(createInitialReserveForm());
+    setReserveError('');
+  };
+
+  const handleOpenReserveModal = () => {
+    resetReserveModal();
+    setShowReserveModal(true);
+  };
+
+  const handleCloseReserveModal = () => {
+    if (isReserving) return;
+    setShowReserveModal(false);
+    resetReserveModal();
+  };
+
+  const refreshDocumentList = async () => {
+    setSelectedIds(new Set());
+
+    if (page !== 1) {
+      setPage(1);
+      return;
+    }
+
+    await fetchData();
+  };
+
+  const handleReserveSubmit = async () => {
+    if (!reserveForm.category_id) {
+      setReserveError('請先選擇文件類別。');
+      return;
+    }
+
+    setIsReserving(true);
+    setReserveError('');
+
+    try {
+      const reservedDoc = await reserveDocumentNumber({
+        category_id: reserveForm.category_id,
+        notes: reserveForm.notes.trim() || undefined,
+      });
+
+      setShowReserveModal(false);
+      resetReserveModal();
+      alert(`領號成功：${reservedDoc.doc_number}`);
+      await refreshDocumentList();
+    } catch (error) {
+      console.error('Reserve document number failed', error);
+      setReserveError(getApiErrorMessage(error, '領號失敗，請稍後再試。'));
+    } finally {
+      setIsReserving(false);
+    }
+  };
+
+  return (
     <div className="animate-in fade-in duration-500 h-full flex flex-col">
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-2xl font-bold text-slate-800">文件清單</h2>
@@ -201,6 +267,12 @@ export default function DocumentList() {
               <button onClick={() => handleExport('xlsx')} className="block w-full text-left px-4 py-2 hover:bg-slate-50 text-sm">Excel 格式</button>
             </div>
           </div>
+          <button
+            onClick={handleOpenReserveModal}
+            className="flex items-center px-4 py-2.5 bg-white border border-slate-200 text-slate-700 rounded-xl hover:bg-slate-50 transition shadow-sm font-medium text-sm"
+          >
+            <Hash className="w-4 h-4 mr-2" /> 預先領號
+          </button>
           <button 
             onClick={() => setShowUpload(true)}
             className="flex items-center px-4 py-2.5 bg-primary-600 text-white rounded-xl hover:bg-primary-700 transition shadow-sm font-medium text-sm"
@@ -423,6 +495,98 @@ export default function DocumentList() {
           </div>
         </div>
       </div>
+
+      {showReserveModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            onClick={handleCloseReserveModal}
+          />
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg relative z-10 p-6 animate-in zoom-in-95 duration-200">
+            <div className="flex items-start justify-between mb-5">
+              <div>
+                <h3 className="text-xl font-bold text-slate-900">預先領號</h3>
+                <p className="text-sm text-slate-500 mt-1">
+                  先建立預約中的文件編號，之後可以再補上內容與檔案。
+                </p>
+              </div>
+              <button
+                onClick={handleCloseReserveModal}
+                disabled={isReserving}
+                className="p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition disabled:opacity-50"
+                aria-label="關閉預先領號視窗"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {reserveError && (
+              <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {reserveError}
+              </div>
+            )}
+
+            <div className="space-y-5">
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-2">
+                  文件類別 <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={reserveForm.category_id}
+                  onChange={(e) => setReserveForm((prev) => ({ ...prev, category_id: e.target.value }))}
+                  disabled={isReserving}
+                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-primary-500 outline-none transition-all disabled:opacity-60"
+                >
+                  <option value="">請選擇文件類別</option>
+                  {categories.map((category) => (
+                    <option key={category.id} value={category.id}>
+                      {category.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-2">
+                  備註說明
+                </label>
+                <textarea
+                  rows={4}
+                  value={reserveForm.notes}
+                  onChange={(e) => setReserveForm((prev) => ({ ...prev, notes: e.target.value }))}
+                  disabled={isReserving}
+                  placeholder="可補充此號碼的用途、申請原因或後續處理說明..."
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-primary-500 outline-none transition-all resize-none disabled:opacity-60"
+                />
+              </div>
+            </div>
+
+            <div className="mt-6 flex space-x-3">
+              <button
+                onClick={handleCloseReserveModal}
+                disabled={isReserving}
+                className="flex-1 px-4 py-2.5 border border-slate-200 text-slate-600 rounded-xl hover:bg-slate-50 transition-colors font-medium text-sm disabled:opacity-50"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleReserveSubmit}
+                disabled={!reserveForm.category_id || isReserving}
+                className="flex-1 px-4 py-2.5 bg-primary-600 text-white rounded-xl hover:bg-primary-700 disabled:opacity-50 transition-all font-medium text-sm shadow-sm flex items-center justify-center"
+              >
+                {isReserving ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    領號中...
+                  </>
+                ) : (
+                  '確認領號'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Action Bar for Batch Operations */}
       {selectedIds.size > 0 && (
